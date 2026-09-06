@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#08120e" />
+  <title>Saturday Edge</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="ball">🏈</div>
+        <div>
+          <h1>SATURDAY EDGE</h1>
+          <p>College Football Spread Analyzer</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button id="refreshBtn" class="btn primary">↻ Refresh</button>
+        <button id="settingsBtn" class="btn ghost">⚙ Settings</button>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div>
+        <div class="eyebrow">BETMGM • SPREADS • MODEL v0.4</div>
+        <h2>Find the number.<br><span>Ignore the noise.</span></h2>
+        <p id="statusText">Live BetMGM board powered by Saturday Edge v0.4.</p>
+      </div>
+      <div class="hero-card">
+        <div class="hero-card-label">Model discipline</div>
+        <strong>PASS is a position.</strong>
+        <span>We only surface a play when the model/market gap clears the threshold.</span>
+      </div>
+    </section>
+
+    <section class="summary-grid">
+      <article class="summary-card"><span>Games analyzed</span><strong id="gamesCount">0</strong></article>
+      <article class="summary-card"><span>Pass</span><strong id="passCount">0</strong></article>
+      <article class="summary-card"><span>Playable</span><strong id="playableCount">0</strong></article>
+      <article class="summary-card glow"><span>Strong edges</span><strong id="strongCount">0</strong></article>
+    </section>
+
+    <section class="controls">
+      <div class="tabs" id="tabs">
+        <button class="tab active" data-filter="ALL">All</button>
+        <button class="tab" data-filter="STRONG">🔥 Strong</button>
+        <button class="tab" data-filter="PLAYABLE">🟢 Playable</button>
+        <button class="tab" data-filter="LEAN">🟡 Lean</button>
+        <button class="tab" data-filter="PASS">🔴 Pass</button>
+      </div>
+      <div class="sort-wrap">
+        <label for="sortSelect">Sort</label>
+        <select id="sortSelect">
+          <option value="edge">Biggest edge</option>
+          <option value="time">Kickoff</option>
+          <option value="score">Edge score</option>
+        </select>
+      </div>
+    </section>
+
+    <main>
+      <div id="board" class="board"></div>
+      <div id="emptyState" class="empty hidden">No games match this filter.</div>
+    </main>
+
+    <section class="tracker-section">
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow">PERSONAL LEDGER</div>
+          <h2>My Bets</h2>
+        </div>
+        <button id="clearBetsBtn" class="btn ghost danger">Clear ledger</button>
+      </div>
+      <div class="tracker-summary">
+        <div><span>Tracked bets</span><strong id="betCount">0</strong></div>
+        <div><span>Units risked</span><strong id="unitsRisked">0.0u</strong></div>
+      </div>
+      <div id="betsTableWrap" class="table-wrap"></div>
+    </section>
+
+    <footer>
+      <p><strong>Saturday Edge is an analysis tool, not a guarantee.</strong> Model scores are not win probabilities. Bet only amounts you can afford to lose.</p>
+    </footer>
+  </div>
+
+  <dialog id="gameDialog">
+    <div class="dialog-head">
+      <div>
+        <div class="eyebrow">WHY THIS RATING?</div>
+        <h2 id="dialogTitle">Game</h2>
+      </div>
+      <button id="dialogClose" class="icon-btn">✕</button>
+    </div>
+    <div id="dialogBody"></div>
+  </dialog>
+
+  <dialog id="settingsDialog">
+    <div class="dialog-head">
+      <div>
+        <div class="eyebrow">CONNECTION</div>
+        <h2>Settings</h2>
+      </div>
+      <button id="settingsClose" class="icon-btn">✕</button>
+    </div>
+    <div class="settings-body">
+      <label>
+        Data mode
+        <select id="modeSelect">
+          <option value="demo">Demo data</option>
+          <option value="live">Live Edge Function</option>
+        </select>
+      </label>
+      <label>
+        Supabase Edge Function URL
+        <input id="endpointInput" type="url" placeholder="https://YOUR_PROJECT.supabase.co/functions/v1/saturday-edge-board" />
+      </label>
+      <div class="note">
+        API keys stay in Supabase Secrets. This page only stores the public Edge Function URL.
+      </div>
+      <button id="saveSettingsBtn" class="btn primary full">Save settings</button>
+    </div>
+  </dialog>
+
+  <dialog id="betDialog">
+    <div class="dialog-head">
+      <div>
+        <div class="eyebrow">TRACK A WAGER</div>
+        <h2 id="betDialogTitle">Add bet</h2>
+      </div>
+      <button id="betDialogClose" class="icon-btn">✕</button>
+    </div>
+    <form id="betForm" class="settings-body">
+      <input type="hidden" id="betGameId" />
+      <label>Units risked<input id="betUnits" type="number" min="0.1" step="0.1" value="1" required /></label>
+      <label>BetMGM line<input id="betLine" type="number" step="0.5" required /></label>
+      <label>Price<input id="betPrice" type="number" step="1" value="-110" required /></label>
+      <label>Notes<input id="betNotes" type="text" maxlength="120" placeholder="Optional" /></label>
+      <button class="btn primary full" type="submit">Add to My Bets</button>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
