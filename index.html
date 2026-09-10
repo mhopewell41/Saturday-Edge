@@ -7,7 +7,7 @@
   <title>Saturday Edge</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=6" />
 </head>
 <body>
   <div class="app-shell">
@@ -27,14 +27,14 @@
 
     <section class="hero">
       <div>
-        <div class="eyebrow">BETMGM • SPREADS • MODEL v0.4</div>
-        <h2>Find the number.<br><span>Ignore the noise.</span></h2>
-        <p id="statusText">Live BetMGM board powered by Saturday Edge v0.4.</p>
+        <div class="eyebrow">BETMGM • SPREADS • APP v0.6 • MODEL v0.5</div>
+        <h2>Find the number.<br><span>Keep the receipts.</span></h2>
+        <p id="statusText">Loading the live Week 2 board…</p>
       </div>
       <div class="hero-card">
         <div class="hero-card-label">Model discipline</div>
         <strong>PASS is a position.</strong>
-        <span>We only surface a play when the model/market gap clears the threshold.</span>
+        <span>PLAYABLE and STRONG count toward bankroll performance. LEAN and PASS stay in the research sample only.</span>
       </div>
     </section>
 
@@ -43,6 +43,29 @@
       <article class="summary-card"><span>Pass</span><strong id="passCount">0</strong></article>
       <article class="summary-card"><span>Playable</span><strong id="playableCount">0</strong></article>
       <article class="summary-card glow"><span>Strong edges</span><strong id="strongCount">0</strong></article>
+    </section>
+
+    <section class="performance-section">
+      <div class="section-heading performance-heading">
+        <div>
+          <div class="eyebrow">PROSPECTIVE EVIDENCE</div>
+          <h2>Model Performance</h2>
+          <p id="performanceStatus">Loading graded results…</p>
+        </div>
+        <div class="evidence-badge">🧾 Receipts on</div>
+      </div>
+
+      <div id="performanceGrid" class="performance-grid">
+        <article class="performance-card hero-metric"><span>Actionable ATS</span><strong>—</strong><small>PLAYABLE + STRONG</small></article>
+        <article class="performance-card"><span>Units</span><strong>—</strong><small>1u risk per graded play</small></article>
+        <article class="performance-card"><span>Avg CLV</span><strong>—</strong><small>First actionable vs observed close</small></article>
+        <article class="performance-card"><span>ROI</span><strong>—</strong><small>Prospective sample</small></article>
+      </div>
+
+      <div id="performanceBreakdown" class="performance-breakdown"></div>
+      <div id="recentResults" class="recent-results"></div>
+
+      <p class="sample-warning">Early records are descriptive, not proof of an edge. Saturday Edge will not retune model weights from a tiny sample.</p>
     </section>
 
     <section class="controls">
@@ -84,7 +107,7 @@
     </section>
 
     <footer>
-      <p><strong>Saturday Edge is an analysis tool, not a guarantee.</strong> Model scores are not win probabilities. Bet only amounts you can afford to lose.</p>
+      <p><strong>Saturday Edge is an analysis tool, not a guarantee.</strong> Model scores are not win probabilities. Bet only amounts you can afford to lose. No wager is placed automatically.</p>
     </footer>
   </div>
 
@@ -119,9 +142,7 @@
         Supabase Edge Function URL
         <input id="endpointInput" type="url" placeholder="https://YOUR_PROJECT.supabase.co/functions/v1/saturday-edge-board" />
       </label>
-      <div class="note">
-        API keys stay in Supabase Secrets. This page only stores the public Edge Function URL.
-      </div>
+      <div class="note">API keys stay in Supabase Secrets. This page stores only public Edge Function URLs.</div>
       <button id="saveSettingsBtn" class="btn primary full">Save settings</button>
     </div>
   </dialog>
@@ -144,6 +165,6 @@
     </form>
   </dialog>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>
