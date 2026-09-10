@@ -62,13 +62,32 @@ function movementFor(g){ return performance?.movementByGame?.[g.id] || null; }
 function movementChip(g){
   const m=movementFor(g);
   if(!m || m.firstLine===null || m.currentLine===null) return "";
-  if(Number(m.snapshots||0)<=1) return `<span class="movement-chip neutral">📍 First look ${fmtLine(m.currentLine)}</span>`;
+
+  const snapshots=Number(m.snapshots||0);
+  const liveLine=Number(g.marketLine);
+  const capturedLine=Number(m.currentLine);
+  const hasLive=Number.isFinite(liveLine);
+  const hasCaptured=Number.isFinite(capturedLine);
+  const differs=hasLive&&hasCaptured&&Math.abs(liveLine-capturedLine)>=0.01;
+
+  if(snapshots<=1){
+    if(differs){
+      return `<span class="movement-chip active">📍 Captured ${fmtLine(capturedLine)} • Live ${fmtLine(liveLine)} <small>1 snap</small></span>`;
+    }
+    return `<span class="movement-chip neutral">📍 First look ${fmtLine(capturedLine)} <small>1 snap</small></span>`;
+  }
+
   const change=Number(m.lineChange||0);
-  const cls=Math.abs(change)<.01?"neutral":"active";
-  return `<span class="movement-chip ${cls}">📈 First ${fmtLine(m.firstLine)} → Now ${fmtLine(m.currentLine)} <small>${m.snapshots} snaps</small></span>`;
+  const cls=differs||Math.abs(change)>=.01?"active":"neutral";
+
+  if(differs){
+    return `<span class="movement-chip ${cls}">📈 First ${fmtLine(m.firstLine)} → Last captured ${fmtLine(capturedLine)} • Live ${fmtLine(liveLine)} <small>${snapshots} snaps</small></span>`;
+  }
+
+  return `<span class="movement-chip ${cls}">📈 First ${fmtLine(m.firstLine)} → Now ${fmtLine(capturedLine)} <small>${snapshots} snaps</small></span>`;
 }
 
-const LIVE_CACHE_KEY="se-live-board-cache-v06";
+const LIVE_CACHE_KEY="se-live-board-cache-v061";
 const LIVE_CACHE_TTL_MS=5*60*1000;
 
 function readLiveCache(){
@@ -230,9 +249,13 @@ function openWhy(id){
   const m=g.marketConsensus||{};
   const move=movementFor(g);
   const systems=Array.isArray(g.matchedSystems)&&g.matchedSystems.length?g.matchedSystems.join(", "):"None";
+  const capturedDiffers=move&&Number.isFinite(Number(g.marketLine))&&Number.isFinite(Number(move.currentLine))
+    ? Math.abs(Number(g.marketLine)-Number(move.currentLine))>=0.01
+    : false;
   const movementStats=move?`
     <div class="why-stat"><span>First recorded line</span><strong>${fmtLine(move.firstLine)}</strong></div>
-    <div class="why-stat"><span>Latest recorded line</span><strong>${fmtLine(move.currentLine)}</strong></div>
+    <div class="why-stat"><span>Latest captured line</span><strong>${fmtLine(move.currentLine)}</strong></div>
+    ${capturedDiffers?`<div class="why-stat"><span>Live BetMGM line</span><strong>${fmtLine(g.marketLine)}</strong></div>`:""}
     <div class="why-stat"><span>Evidence snapshots</span><strong>${move.snapshots}</strong></div>`:"";
   $("dialogTitle").textContent=`${g.away} @ ${g.home}`;
   $("dialogBody").innerHTML=`<div class="why-grid">
