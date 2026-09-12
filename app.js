@@ -1,6 +1,6 @@
 const LIVE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-board";
 const PERFORMANCE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-performance";
-const SETTINGS_VERSION = 6;
+const SETTINGS_VERSION = 7;
 
 const DEMO_GAMES = [
   {
@@ -34,6 +34,7 @@ function loadSettings(){
 let settings = loadSettings();
 let games = [];
 let currentFilter = "ALL";
+let currentTimeFilter = "ALL";
 let currentBetGame = null;
 let lastPayload = null;
 let performance = null;
@@ -45,6 +46,46 @@ const fmtTime = iso => new Intl.DateTimeFormat("en-US",{weekday:"short",hour:"nu
 const fmtUnits = n => n === null || n === undefined || !Number.isFinite(Number(n)) ? "—" : `${Number(n)>=0?"+":""}${Number(n).toFixed(2)}u`;
 const fmtPct = n => n === null || n === undefined || !Number.isFinite(Number(n)) ? "—" : `${Number(n).toFixed(1)}%`;
 const record = s => s ? `${s.wins||0}-${s.losses||0}${s.pushes ? `-${s.pushes}` : ""}` : "—";
+
+function kickoffBucket(iso){
+  const d=new Date(iso);
+  if(Number.isNaN(d.getTime())) return "UNKNOWN";
+  const hour=d.getHours();
+  if(hour<14) return "EARLY";
+  if(hour<18) return "AFTERNOON";
+  return "EVENING";
+}
+
+function matchesTimeFilter(g){
+  return currentTimeFilter==="ALL" || kickoffBucket(g.kickoff)===currentTimeFilter;
+}
+
+function isPregameLocked(g){
+  const kickoff=new Date(g?.kickoff).getTime();
+  return Number.isFinite(kickoff) && kickoff<=Date.now()+5*60*1000;
+}
+
+function formatCacheAge(ms){
+  if(!Number.isFinite(ms)||ms<0) return "unknown age";
+  const minutes=Math.floor(ms/60000);
+  if(minutes<1) return `${Math.max(0,Math.floor(ms/1000))}s old`;
+  if(minutes<60) return `${minutes}m old`;
+  const hours=Math.floor(minutes/60);
+  const leftover=minutes%60;
+  return `${hours}h${leftover?` ${leftover}m`:""} old`;
+}
+
+function coverageReasonLabel(reason){
+  return ({
+    STARTED_OR_TOO_CLOSE:"Started / inside safety buffer",
+    NO_BETMGM_SPREAD:"No BetMGM spread",
+    MALFORMED_BETMGM_MARKET:"BetMGM market incomplete",
+    TEAM_MATCH_FAILED:"Team-name match failed",
+    NO_RATINGS:"No usable ratings",
+    NO_CURRENT_ODDS_FEED:"Not in current odds feed",
+    FILTERED:"Filtered before analysis"
+  })[reason] || reason || "Coverage gap";
+}
 
 function marketChip(g){
   const m=g.marketConsensus;
@@ -87,7 +128,7 @@ function movementChip(g){
   return `<span class="movement-chip ${cls}">📈 First ${fmtLine(m.firstLine)} → Now ${fmtLine(capturedLine)} <small>${snapshots} snaps</small></span>`;
 }
 
-const LIVE_CACHE_KEY="se-live-board-cache-v061";
+const LIVE_CACHE_KEY="se-live-board-cache-v063";
 const LIVE_CACHE_TTL_MS=5*60*1000;
 
 function readLiveCache(){
@@ -102,35 +143,66 @@ function writeLiveCache(payload){ try{localStorage.setItem(LIVE_CACHE_KEY,JSON.s
 async function loadGames(){
   $("refreshBtn").disabled=true;
   $("statusText").textContent=settings.mode==="live"?"Loading BetMGM spread board…":"Demo mode is active.";
+
+  const cached=settings.mode==="live"?readLiveCache():null;
+  const cacheAge=cached?Date.now()-cached.savedAt:Infinity;
+
   try{
     if(settings.mode==="live"){
       if(!settings.endpoint) throw new Error("Add the Supabase Edge Function URL in Settings.");
-      const cached=readLiveCache();
-      const cacheAge=cached?Date.now()-cached.savedAt:Infinity;
+
       let payload=null, source="live";
-      if(cached&&cacheAge<LIVE_CACHE_TTL_MS){ payload=cached.payload; source="cache"; }
-      else{
-        const r=await fetch(settings.endpoint,{headers:{Accept:"application/json"},cache:"no-store"});
-        payload=await r.json().catch(()=>({}));
-        if(!r.ok) throw new Error(payload.error||`Live data request failed (${r.status}).`);
-        if(payload.error) throw new Error(payload.error);
-        writeLiveCache(payload);
+
+      // Normal quota protection: fresh browser cache wins for 5 minutes.
+      if(cached&&cacheAge<LIVE_CACHE_TTL_MS){
+        payload=cached.payload;
+        source="cache";
+      }else{
+        try{
+          const r=await fetch(settings.endpoint,{headers:{Accept:"application/json"},cache:"no-store"});
+          payload=await r.json().catch(()=>({}));
+          if(!r.ok) throw new Error(payload.error||`Live data request failed (${r.status}).`);
+          if(payload.error) throw new Error(payload.error);
+          writeLiveCache(payload);
+        }catch(fetchError){
+          // Hardening v0.6.3: never replace a previously good board with demo
+          // data just because the live provider has a temporary outage.
+          if(cached?.payload&&Array.isArray(cached.payload.games)){
+            payload=cached.payload;
+            source="stale";
+            console.warn("Live board unavailable, using last successful browser cache.",fetchError);
+          }else{
+            throw fetchError;
+          }
+        }
       }
+
       lastPayload=payload;
       games=Array.isArray(payload.games)?payload.games:[];
+
       const credits=payload.oddsApiUsage?.remaining;
       const creditText=credits!==null&&credits!==undefined?` • ${credits} odds credits left`:"";
-      const ageText=source==="cache"?` • cached ${Math.max(0,Math.floor(cacheAge/1000))}s ago`:" • fresh pull";
-      $("statusText").textContent=`Live board • ${payload.modelVersion||"model"} • ${games.length} games${ageText}${creditText}`;
+
+      if(source==="stale"){
+        $("statusText").textContent=`⚠ Live odds temporarily unavailable • showing last successful board (${formatCacheAge(cacheAge)}) • ${games.length} games${creditText}`;
+      }else{
+        const ageText=source==="cache"?` • cached ${Math.max(0,Math.floor(cacheAge/1000))}s ago`:" • fresh pull";
+        $("statusText").textContent=`Live board • ${payload.modelVersion||"model"} • ${games.length} games${ageText}${creditText}`;
+      }
     }else{
-      lastPayload=null; games=DEMO_GAMES;
+      lastPayload=null;
+      games=DEMO_GAMES;
       $("statusText").textContent="Demo mode • no live API usage";
     }
   }catch(err){
-    console.error(err); games=DEMO_GAMES; lastPayload=null;
-    $("statusText").textContent=`${err.message} Showing demo board instead.`;
+    console.error(err);
+    games=DEMO_GAMES;
+    lastPayload=null;
+    $("statusText").textContent=`${err.message} No prior live board was available, so demo data is shown.`;
   }finally{
-    $("refreshBtn").disabled=false; render();
+    $("refreshBtn").disabled=false;
+    renderCoverage();
+    render();
   }
 }
 
@@ -153,6 +225,74 @@ async function loadPerformance(){
     $("performanceStatus").textContent=`Performance feed unavailable: ${err.message}`;
   }
   renderPerformance(); render();
+}
+
+function renderCoverage(){
+  const c=lastPayload?.coverageAudit;
+
+  if(!c){
+    $("pipelineBadge").textContent="🛡 Pipeline check";
+    $("coverageStatus").textContent=settings.mode==="live"
+      ?"Coverage details will appear after the hardened v0.5.1 board function is deployed."
+      :"Coverage audit is available in live mode.";
+    $("coverageGrid").innerHTML=`
+      <article class="coverage-card"><span>Odds feed</span><strong>—</strong><small>events returned</small></article>
+      <article class="coverage-card"><span>Today's schedule</span><strong>—</strong><small>CFBD games, Eastern date</small></article>
+      <article class="coverage-card good"><span>Analyzed today</span><strong>—</strong><small>made the model board</small></article>
+      <article class="coverage-card warn"><span>Coverage gaps</span><strong>—</strong><small>visible reasons, no silent drops</small></article>`;
+    $("coverageDetails").innerHTML="";
+    return;
+  }
+
+  const attempts=Number(c.oddsFetch?.attempts||1);
+  const recovered=Boolean(c.oddsFetch?.recoveredAfterRetry);
+  $("pipelineBadge").textContent=recovered?`🛡 Recovered in ${attempts} tries`:"🛡 Feed healthy";
+  $("coverageStatus").textContent=`${c.pipelineVersion||"Hardened board"} • ${c.date||"today"} ET • Odds request ${recovered?`recovered after ${attempts} attempts`:`succeeded on attempt ${attempts}`}.`;
+
+  $("coverageGrid").innerHTML=`
+    <article class="coverage-card"><span>Odds feed</span><strong>${Number(c.oddsFeedEvents||0)}</strong><small>events returned now</small></article>
+    <article class="coverage-card"><span>Today's schedule</span><strong>${Number(c.scheduleGamesToday||0)}</strong><small>CFBD games on ${escapeHtml(c.date||"today")} ET</small></article>
+    <article class="coverage-card good"><span>Analyzed today</span><strong>${Number(c.analyzedToday||0)}</strong><small>made the model board</small></article>
+    <article class="coverage-card ${Number(c.gapsToday||0)>0?"warn":"good"}"><span>Coverage gaps</span><strong>${Number(c.gapsToday||0)}</strong><small>${Number(c.gapsToday||0)>0?"tap below to see why":"no silent drops detected"}</small></article>`;
+
+  const gaps=Array.isArray(c.gaps)?c.gaps:[];
+  const excluded=c.excludedCounts||{};
+  const limited=c.limitedButIncluded||{};
+
+  const reasonSummary=`
+    <div class="coverage-reasons">
+      <span>Started/too close <strong>${Number(excluded.startedOrTooClose||0)}</strong></span>
+      <span>No BetMGM <strong>${Number(excluded.noBetmgmSpread||0)}</strong></span>
+      <span>Bad market <strong>${Number(excluded.malformedBetmgmMarket||0)}</strong></span>
+      <span>Team match <strong>${Number(excluded.unmatchedTeams||0)}</strong></span>
+      <span>No ratings <strong>${Number(excluded.noRatings||0)}</strong></span>
+      <span>Limited ratings, still shown <strong>${Number(limited.insufficientRatings||0)}</strong></span>
+      <span>No consensus, still shown <strong>${Number(limited.noConsensus||0)}</strong></span>
+    </div>`;
+
+  if(!gaps.length){
+    $("coverageDetails").innerHTML=`${reasonSummary}<div class="coverage-clear">✓ Every CFBD game on today's Eastern calendar that can be matched to the current feed is accounted for.</div>`;
+    return;
+  }
+
+  $("coverageDetails").innerHTML=`
+    ${reasonSummary}
+    <details class="coverage-gap-box" open>
+      <summary>⚠ Show ${gaps.length} game${gaps.length===1?"":"s"} not on the analyzed board</summary>
+      <div class="coverage-gap-list">
+        ${gaps.map(g=>`
+          <div class="coverage-gap-row">
+            <div>
+              <strong>${escapeHtml(g.away||"Unknown")} @ ${escapeHtml(g.home||"Unknown")}</strong>
+              <span>${g.kickoff?fmtTime(g.kickoff):"Kickoff TBD"}</span>
+            </div>
+            <div class="coverage-gap-reason">
+              <b>${escapeHtml(coverageReasonLabel(g.reason||g.status))}</b>
+              <small>${escapeHtml(g.detail||g.reason||"Not analyzed")}</small>
+            </div>
+          </div>`).join("")}
+      </div>
+    </details>`;
 }
 
 function renderPerformance(){
@@ -209,7 +349,10 @@ function renderPerformance(){
 
 function render(){
   const sort=$("sortSelect").value;
-  let shown=games.filter(g=>currentFilter==="ALL"||g.classification===currentFilter);
+  let shown=games.filter(g=>
+    (currentFilter==="ALL"||g.classification===currentFilter) &&
+    matchesTimeFilter(g)
+  );
   shown.sort((a,b)=>{
     if(sort==="time") return new Date(a.kickoff)-new Date(b.kickoff);
     if(sort==="score") return Number(b.edgeScore||0)-Number(a.edgeScore||0);
@@ -219,18 +362,19 @@ function render(){
   $("board").innerHTML=shown.map(g=>{
     const consensus=g.marketConsensus?.available?fmtLine(g.marketConsensus.consensusLine):"—";
     const systems=Array.isArray(g.matchedSystems)?g.matchedSystems.join(" + "):"—";
-    return `<article class="game-card">
+    const locked=isPregameLocked(g);
+    return `<article class="game-card ${locked?"locked-game":""}">
       <div class="matchup">
         <strong>${escapeHtml(g.away)} @ ${escapeHtml(g.home)}</strong>
         <span>${fmtTime(g.kickoff)} • BetMGM ${fmtPrice(g.marketPrice??-110)} • Models: ${escapeHtml(systems)}</span>
-        <div class="market-row">${marketChip(g)} <span class="consensus-text">Consensus ${consensus}${g.marketConsensus?.bookCount?` (${g.marketConsensus.bookCount} books)`:""}</span>${movementChip(g)}</div>
+        <div class="market-row">${locked?`<span class="market-chip caution">🔒 PREGAME CARD LOCKED</span>`:""} ${marketChip(g)} <span class="consensus-text">Consensus ${consensus}${g.marketConsensus?.bookCount?` (${g.marketConsensus.bookCount} books)`:""}</span>${movementChip(g)}</div>
       </div>
       <div class="metric"><label>Best side</label><strong>${escapeHtml(g.recommendedTeam)}</strong></div>
       <div class="metric"><label>BetMGM</label><strong>${fmtLine(g.marketLine)}</strong></div>
       <div class="metric"><label>Our line</label><strong>${fmtLine(g.projectedLine)}</strong></div>
       <div class="metric"><label>Edge</label><strong class="edge-positive">+${Math.abs(Number(g.edge||0)).toFixed(1)}</strong></div>
       <div class="rating"><span class="badge ${escapeHtml(g.classification)}">${badgeText(g.classification)} ${Math.round(Number(g.edgeScore||0))}</span></div>
-      <div class="card-actions"><button class="small-btn" onclick="openWhy('${g.id}')">WHY?</button><button class="small-btn bet" onclick="openBet('${g.id}')">+ Track</button></div>
+      <div class="card-actions"><button class="small-btn" onclick="openWhy('${g.id}')">WHY?</button>${locked?`<button class="small-btn locked" disabled>🔒 Locked</button>`:`<button class="small-btn bet" onclick="openBet('${g.id}')">+ Track</button>`}</div>
     </article>`;
   }).join("");
 
@@ -273,6 +417,10 @@ window.openWhy=openWhy;
 
 function openBet(id){
   const g=games.find(x=>x.id===id); if(!g) return;
+  if(isPregameLocked(g)){
+    alert("This game has started or is inside the 5-minute pregame safety buffer. Saturday Edge will not track a new wager from this card.");
+    return;
+  }
   currentBetGame=g; $("betGameId").value=g.id;
   $("betDialogTitle").textContent=`${g.recommendedTeam} ${fmtLine(g.marketLine)}`;
   $("betLine").value=Number(g.marketLine).toFixed(1); $("betPrice").value=g.marketPrice??-110;
@@ -306,7 +454,30 @@ $("saveSettingsBtn").addEventListener("click",async()=>{
   await loadGames();
   await loadPerformance();
 });
-$("tabs").addEventListener("click",e=>{const btn=e.target.closest(".tab");if(!btn)return;document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));btn.classList.add("active");currentFilter=btn.dataset.filter;render();});
+$("tabs").addEventListener("click",e=>{
+  const btn=e.target.closest(".tab");
+  if(!btn)return;
+  $("tabs").querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+  btn.classList.add("active");
+  currentFilter=btn.dataset.filter;
+  render();
+});
+
+$("timeTabs").addEventListener("click",e=>{
+  const btn=e.target.closest(".time-tab");
+  if(!btn)return;
+  $("timeTabs").querySelectorAll(".time-tab").forEach(x=>x.classList.remove("active"));
+  btn.classList.add("active");
+  currentTimeFilter=btn.dataset.timeFilter;
+
+  // Once a kickoff window is selected, chronological order is usually
+  // the most useful view. "All day" leaves the user's current sort alone.
+  if(currentTimeFilter!=="ALL"){
+    $("sortSelect").value="time";
+  }
+  render();
+});
+
 $("sortSelect").addEventListener("change",render);
 $("refreshBtn").addEventListener("click",async()=>{
   await loadGames();
@@ -320,7 +491,7 @@ $("clearBetsBtn").addEventListener("click",()=>{if(confirm("Clear every wager fr
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=6").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=63").catch(()=>{}));}
 (async()=>{
   await loadGames();
   await loadPerformance();

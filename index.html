@@ -7,7 +7,7 @@
   <title>Saturday Edge</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=61" />
+  <link rel="stylesheet" href="styles.css?v=63" />
 </head>
 <body>
   <div class="app-shell">
@@ -27,7 +27,7 @@
 
     <section class="hero">
       <div>
-        <div class="eyebrow">BETMGM • SPREADS • APP v0.6.1 • MODEL v0.5</div>
+        <div class="eyebrow">BETMGM • SPREADS • APP v0.6.3 • MODEL v0.5</div>
         <h2>Find the number.<br><span>Keep the receipts.</span></h2>
         <p id="statusText">Loading the live Week 2 board…</p>
       </div>
@@ -43,6 +43,26 @@
       <article class="summary-card"><span>Pass</span><strong id="passCount">0</strong></article>
       <article class="summary-card"><span>Playable</span><strong id="playableCount">0</strong></article>
       <article class="summary-card glow"><span>Strong edges</span><strong id="strongCount">0</strong></article>
+    </section>
+
+    <section class="coverage-section">
+      <div class="section-heading coverage-heading">
+        <div>
+          <div class="eyebrow">BOARD COMPLETENESS</div>
+          <h2>Coverage Audit</h2>
+          <p id="coverageStatus">Waiting for the hardened board feed…</p>
+        </div>
+        <div id="pipelineBadge" class="evidence-badge">🛡 Pipeline check</div>
+      </div>
+
+      <div id="coverageGrid" class="coverage-grid">
+        <article class="coverage-card"><span>Odds feed</span><strong>—</strong><small>events returned</small></article>
+        <article class="coverage-card"><span>Today's schedule</span><strong>—</strong><small>CFBD games, Eastern date</small></article>
+        <article class="coverage-card good"><span>Analyzed today</span><strong>—</strong><small>made the model board</small></article>
+        <article class="coverage-card warn"><span>Coverage gaps</span><strong>—</strong><small>visible reasons, no silent drops</small></article>
+      </div>
+
+      <div id="coverageDetails" class="coverage-details"></div>
     </section>
 
     <section class="performance-section">
@@ -69,13 +89,29 @@
     </section>
 
     <section class="controls">
-      <div class="tabs" id="tabs">
-        <button class="tab active" data-filter="ALL">All</button>
-        <button class="tab" data-filter="STRONG">🔥 Strong</button>
-        <button class="tab" data-filter="PLAYABLE">🟢 Playable</button>
-        <button class="tab" data-filter="LEAN">🟡 Lean</button>
-        <button class="tab" data-filter="PASS">🔴 Pass</button>
+      <div class="filter-stack">
+        <div>
+          <div class="filter-label">Rating</div>
+          <div class="tabs" id="tabs">
+            <button class="tab active" data-filter="ALL">All</button>
+            <button class="tab" data-filter="STRONG">🔥 Strong</button>
+            <button class="tab" data-filter="PLAYABLE">🟢 Playable</button>
+            <button class="tab" data-filter="LEAN">🟡 Lean</button>
+            <button class="tab" data-filter="PASS">🔴 Pass</button>
+          </div>
+        </div>
+
+        <div>
+          <div class="filter-label">Kickoff window</div>
+          <div class="tabs time-tabs" id="timeTabs">
+            <button class="tab time-tab active" data-time-filter="ALL">All day</button>
+            <button class="tab time-tab" data-time-filter="EARLY">☀️ Early <span>&lt; 2 PM</span></button>
+            <button class="tab time-tab" data-time-filter="AFTERNOON">🌤️ Afternoon <span>2–6 PM</span></button>
+            <button class="tab time-tab" data-time-filter="EVENING">🌙 Evening <span>6 PM+</span></button>
+          </div>
+        </div>
       </div>
+
       <div class="sort-wrap">
         <label for="sortSelect">Sort</label>
         <select id="sortSelect">
@@ -165,6 +201,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=61"></script>
+  <script src="app.js?v=63"></script>
 </body>
 </html>
