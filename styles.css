@@ -70,3 +70,28 @@ dialog{width:min(720px,calc(100vw - 28px));border:1px solid #365344;background:#
   .coverage-grid{grid-template-columns:1fr 1fr}
   .coverage-gap-row{grid-template-columns:1fr;gap:7px}
 }
+
+/* v0.6.4 week-by-week receipts + diagnostic microscope */
+.evidence-subsection{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+.subsection-heading{display:flex;justify-content:space-between;align-items:end;gap:14px;margin-bottom:10px}
+.subsection-heading h3{margin:4px 0 0;font-size:20px}
+.subsection-heading>span{color:var(--muted);font-size:10px}
+.week-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.week-card{padding:15px;border:1px solid var(--line);border-radius:16px;background:rgba(7,19,13,.75);display:grid;gap:10px}
+.week-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.week-card-head div{display:grid;gap:2px}.week-card-head span,.week-card-head small{color:var(--muted);font-size:10px}.week-card-head strong{font-size:18px}
+.week-record{font-size:25px;font-weight:900}.week-record span{font-size:11px;color:var(--muted);font-weight:700;margin-left:6px}
+.week-metrics,.week-splits{display:flex;flex-wrap:wrap;gap:7px 12px;color:var(--muted);font-size:10px}.week-metrics b,.week-splits b{color:var(--text);font-style:normal}.week-splits em{color:var(--muted);font-size:9px;font-style:normal}
+.diagnostic-box{margin-top:16px;border:1px solid rgba(111,170,130,.28);border-radius:16px;background:rgba(4,15,10,.45);overflow:hidden}
+.diagnostic-box>summary{cursor:pointer;padding:13px 15px;font-weight:850;color:#c9f8d9}.diagnostic-box>summary span{margin-left:6px;color:var(--muted);font-size:10px;font-weight:700}
+.diagnostic-note{margin:0;padding:0 15px 12px;color:var(--muted);font-size:10px;line-height:1.5}
+.diagnostic-breakdown{padding:0 12px 13px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.diagnostic-group{min-width:0}.diagnostic-group h4{margin:0 0 7px;font-size:12px;color:#d9fbe5}.diagnostic-table-wrap{border-radius:12px}
+.diagnostic-table{width:100%;border-collapse:collapse;min-width:460px}.diagnostic-table th,.diagnostic-table td{padding:9px 10px;border-bottom:1px solid var(--line);font-size:10px;text-align:left}.diagnostic-table th{color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-size:9px}.diagnostic-table tr:last-child td{border-bottom:0}
+.diagnostic-warning{grid-column:1/-1;padding:10px 12px;border:1px solid rgba(244,190,65,.25);border-radius:12px;color:#f1cf78;font-size:10px;line-height:1.5}
+.coverage-label{margin:12px 0 7px;color:#bcecca;font-size:10px;text-transform:uppercase;letter-spacing:.1em;font-weight:850}
+.feed-diagnostics{margin-top:10px;border:1px solid var(--line);border-radius:13px;background:rgba(4,13,9,.38)}
+.feed-diagnostics summary{cursor:pointer;padding:10px 12px;color:var(--muted);font-size:10px;font-weight:800}.feed-diagnostics .coverage-reasons{padding:0 10px 10px}
+
+@media(max-width:1000px){.week-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.diagnostic-breakdown{grid-template-columns:1fr}}
+@media(max-width:620px){.week-grid{grid-template-columns:1fr}.subsection-heading{align-items:flex-start;flex-direction:column}.diagnostic-box>summary span{display:block;margin:4px 0 0}.diagnostic-breakdown{padding:0 9px 10px}.diagnostic-table{min-width:420px}}

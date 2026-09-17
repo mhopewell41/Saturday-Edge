@@ -7,7 +7,7 @@
   <title>Saturday Edge</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=63" />
+  <link rel="stylesheet" href="styles.css?v=64" />
 </head>
 <body>
   <div class="app-shell">
@@ -27,9 +27,9 @@
 
     <section class="hero">
       <div>
-        <div class="eyebrow">BETMGM • SPREADS • APP v0.6.3 • MODEL v0.5</div>
+        <div class="eyebrow">BETMGM • SPREADS • APP v0.6.4 • MODEL v0.5</div>
         <h2>Find the number.<br><span>Keep the receipts.</span></h2>
-        <p id="statusText">Loading the live Week 2 board…</p>
+        <p id="statusText">Loading the live Week 3 board…</p>
       </div>
       <div class="hero-card">
         <div class="hero-card-label">Model discipline</div>
@@ -83,6 +83,24 @@
       </div>
 
       <div id="performanceBreakdown" class="performance-breakdown"></div>
+
+      <div class="evidence-subsection">
+        <div class="subsection-heading">
+          <div>
+            <div class="eyebrow">WEEK BY WEEK</div>
+            <h3>Prospective Results</h3>
+          </div>
+          <span>Actionable = PLAYABLE + STRONG</span>
+        </div>
+        <div id="weeklyPerformance" class="week-grid"></div>
+      </div>
+
+      <details class="diagnostic-box" open>
+        <summary>🔬 Diagnostic Breakdown <span>research view, actionable plays only</span></summary>
+        <p class="diagnostic-note">These splits help us find patterns. They do not change model v0.5 or promote LEAN/PASS into bankroll plays.</p>
+        <div id="diagnosticBreakdown" class="diagnostic-breakdown"></div>
+      </details>
+
       <div id="recentResults" class="recent-results"></div>
 
       <p class="sample-warning">Early records are descriptive, not proof of an edge. Saturday Edge will not retune model weights from a tiny sample.</p>
@@ -201,6 +219,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=63"></script>
+  <script src="app.js?v=64"></script>
 </body>
 </html>

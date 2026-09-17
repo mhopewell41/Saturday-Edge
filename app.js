@@ -1,6 +1,6 @@
 const LIVE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-board";
 const PERFORMANCE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-performance";
-const SETTINGS_VERSION = 7;
+const SETTINGS_VERSION = 8;
 
 const DEMO_GAMES = [
   {
@@ -128,7 +128,7 @@ function movementChip(g){
   return `<span class="movement-chip ${cls}">📈 First ${fmtLine(m.firstLine)} → Now ${fmtLine(capturedLine)} <small>${snapshots} snaps</small></span>`;
 }
 
-const LIVE_CACHE_KEY="se-live-board-cache-v063";
+const LIVE_CACHE_KEY="se-live-board-cache-v064";
 const LIVE_CACHE_TTL_MS=5*60*1000;
 
 function readLiveCache(){
@@ -233,7 +233,7 @@ function renderCoverage(){
   if(!c){
     $("pipelineBadge").textContent="🛡 Pipeline check";
     $("coverageStatus").textContent=settings.mode==="live"
-      ?"Coverage details will appear after the hardened v0.5.1 board function is deployed."
+      ?"Coverage details will appear after the hardened board function is deployed."
       :"Coverage audit is available in live mode.";
     $("coverageGrid").innerHTML=`
       <article class="coverage-card"><span>Odds feed</span><strong>—</strong><small>events returned</small></article>
@@ -259,24 +259,45 @@ function renderCoverage(){
   const excluded=c.excludedCounts||{};
   const limited=c.limitedButIncluded||{};
 
-  const reasonSummary=`
-    <div class="coverage-reasons">
-      <span>Started/too close <strong>${Number(excluded.startedOrTooClose||0)}</strong></span>
-      <span>No BetMGM <strong>${Number(excluded.noBetmgmSpread||0)}</strong></span>
-      <span>Bad market <strong>${Number(excluded.malformedBetmgmMarket||0)}</strong></span>
-      <span>Team match <strong>${Number(excluded.unmatchedTeams||0)}</strong></span>
-      <span>No ratings <strong>${Number(excluded.noRatings||0)}</strong></span>
-      <span>Limited ratings, still shown <strong>${Number(limited.insufficientRatings||0)}</strong></span>
-      <span>No consensus, still shown <strong>${Number(limited.noConsensus||0)}</strong></span>
+  // v0.6.4 separates TODAY'S gaps from diagnostics across the entire upcoming odds feed.
+  const todayCounts={};
+  gaps.forEach(g=>{
+    const key=g.reason||g.status||"UNKNOWN";
+    todayCounts[key]=(todayCounts[key]||0)+1;
+  });
+
+  const todaySummary=`
+    <div class="coverage-label">Today's slate</div>
+    <div class="coverage-reasons today-reasons">
+      <span>Started/too close <strong>${Number(todayCounts.STARTED_OR_TOO_CLOSE||0)}</strong></span>
+      <span>Not in odds feed <strong>${Number(todayCounts.NO_CURRENT_ODDS_FEED||0)}</strong></span>
+      <span>No BetMGM <strong>${Number(todayCounts.NO_BETMGM_SPREAD||0)}</strong></span>
+      <span>Team match <strong>${Number(todayCounts.TEAM_MATCH_FAILED||0)}</strong></span>
+      <span>No ratings <strong>${Number(todayCounts.NO_RATINGS||0)}</strong></span>
+      <span>Bad market <strong>${Number(todayCounts.MALFORMED_BETMGM_MARKET||0)}</strong></span>
     </div>`;
 
+  const feedSummary=`
+    <details class="feed-diagnostics">
+      <summary>Entire upcoming feed diagnostics</summary>
+      <div class="coverage-reasons">
+        <span>Started/too close <strong>${Number(excluded.startedOrTooClose||0)}</strong></span>
+        <span>No BetMGM <strong>${Number(excluded.noBetmgmSpread||0)}</strong></span>
+        <span>Bad market <strong>${Number(excluded.malformedBetmgmMarket||0)}</strong></span>
+        <span>Team match <strong>${Number(excluded.unmatchedTeams||0)}</strong></span>
+        <span>No ratings <strong>${Number(excluded.noRatings||0)}</strong></span>
+        <span>Limited ratings, still shown <strong>${Number(limited.insufficientRatings||0)}</strong></span>
+        <span>No consensus, still shown <strong>${Number(limited.noConsensus||0)}</strong></span>
+      </div>
+    </details>`;
+
   if(!gaps.length){
-    $("coverageDetails").innerHTML=`${reasonSummary}<div class="coverage-clear">✓ Every CFBD game on today's Eastern calendar that can be matched to the current feed is accounted for.</div>`;
+    $("coverageDetails").innerHTML=`${todaySummary}${feedSummary}<div class="coverage-clear">✓ Every CFBD game on today's Eastern calendar that can be matched to the current feed is accounted for.</div>`;
     return;
   }
 
   $("coverageDetails").innerHTML=`
-    ${reasonSummary}
+    ${todaySummary}
     <details class="coverage-gap-box" open>
       <summary>⚠ Show ${gaps.length} game${gaps.length===1?"":"s"} not on the analyzed board</summary>
       <div class="coverage-gap-list">
@@ -292,11 +313,28 @@ function renderCoverage(){
             </div>
           </div>`).join("")}
       </div>
-    </details>`;
+    </details>
+    ${feedSummary}`;
 }
 
 function renderPerformance(){
   const a=performance?.actionable;
+  const weeklyEl=$("weeklyPerformance");
+  const diagEl=$("diagnosticBreakdown");
+
+  const fmtClv=value=>value===null||value===undefined||!Number.isFinite(Number(value))
+    ?"—"
+    :`${Number(value)>=0?"+":""}${Number(value).toFixed(2)}`;
+
+  const metricRow=item=>`<tr>
+    <td><strong>${escapeHtml(item.label||item.key||"Unknown")}</strong></td>
+    <td>${record(item)}</td>
+    <td>${fmtPct(item.atsWinRate)}</td>
+    <td class="${Number(item.unitsProfit||0)>=0?"positive":"negative"}">${fmtUnits(item.unitsProfit)}</td>
+    <td>${fmtClv(item.avgClv)}</td>
+    <td>${Number(item.gradedGames||0)}</td>
+  </tr>`;
+
   if(!a){
     $("performanceGrid").innerHTML=`
       <article class="performance-card hero-metric"><span>Actionable ATS</span><strong>—</strong><small>PLAYABLE + STRONG</small></article>
@@ -304,6 +342,8 @@ function renderPerformance(){
       <article class="performance-card"><span>Avg CLV</span><strong>—</strong><small>First actionable vs close</small></article>
       <article class="performance-card"><span>ROI</span><strong>—</strong><small>Prospective sample</small></article>`;
     $("performanceBreakdown").innerHTML="";
+    if(weeklyEl) weeklyEl.innerHTML=`<div class="empty compact">Week-by-week receipts require Performance v0.2.</div>`;
+    if(diagEl) diagEl.innerHTML=`<div class="empty compact">Diagnostic splits require Performance v0.2.</div>`;
     $("recentResults").innerHTML="";
     return;
   }
@@ -311,7 +351,7 @@ function renderPerformance(){
   $("performanceGrid").innerHTML=`
     <article class="performance-card hero-metric"><span>Actionable ATS</span><strong>${record(a)}</strong><small>${fmtPct(a.atsWinRate)} • ${a.gradedGames||0} graded</small></article>
     <article class="performance-card"><span>Units</span><strong class="${Number(a.unitsProfit||0)>=0?"positive":"negative"}">${fmtUnits(a.unitsProfit)}</strong><small>1u risk per graded play</small></article>
-    <article class="performance-card"><span>Avg CLV</span><strong>${a.avgClv===null?"—":`${Number(a.avgClv)>=0?"+":""}${Number(a.avgClv).toFixed(2)}`}</strong><small>points vs observed close</small></article>
+    <article class="performance-card"><span>Avg CLV</span><strong>${fmtClv(a.avgClv)}</strong><small>points vs observed close</small></article>
     <article class="performance-card"><span>ROI</span><strong>${fmtPct(a.roi)}</strong><small>Prospective actionable sample</small></article>`;
 
   const b=performance.byClassification||{};
@@ -322,9 +362,61 @@ function renderPerformance(){
       <div><span class="badge ${c}">${badgeText(c)}</span><small>${actionable?"BANKROLL":"RESEARCH ONLY"}</small></div>
       <strong>${record(s)}</strong>
       <span>${fmtPct(s.atsWinRate)} ATS • ${s.gradedGames||0} graded</span>
-      <span>${actionable?`${fmtUnits(s.unitsProfit)} • CLV ${s.avgClv===null?"—":Number(s.avgClv).toFixed(2)}`:"No units counted"}</span>
+      <span>${actionable?`${fmtUnits(s.unitsProfit)} • CLV ${fmtClv(s.avgClv)}`:"No units counted"}</span>
     </article>`;
   }).join("");
+
+  const weeks=Array.isArray(performance.byWeek)?performance.byWeek:[];
+  if(weeklyEl){
+    if(!weeks.length){
+      weeklyEl.innerHTML=`<div class="empty compact">Week-by-week results will appear after Performance v0.2 is deployed.</div>`;
+    }else{
+      weeklyEl.innerHTML=weeks.map(w=>{
+        const wa=w.actionable||{};
+        const wc=w.byClassification||{};
+        return `<article class="week-card">
+          <div class="week-card-head"><div><span>Season ${escapeHtml(String(w.season||"—"))}</span><strong>Week ${escapeHtml(String(w.week||"—"))}</strong></div><small>${wa.gradedGames||0} actionable</small></div>
+          <div class="week-record">${record(wa)} <span>${fmtPct(wa.atsWinRate)}</span></div>
+          <div class="week-metrics">
+            <span>Units <b class="${Number(wa.unitsProfit||0)>=0?"positive":"negative"}">${fmtUnits(wa.unitsProfit)}</b></span>
+            <span>ROI <b>${fmtPct(wa.roi)}</b></span>
+            <span>CLV <b>${fmtClv(wa.avgClv)}</b></span>
+          </div>
+          <div class="week-splits">
+            <span>🔥 Strong <b>${record(wc.STRONG||{})}</b></span>
+            <span>🟢 Playable <b>${record(wc.PLAYABLE||{})}</b></span>
+            <span>🟡 Lean <b>${record(wc.LEAN||{})}</b> <em>research</em></span>
+          </div>
+        </article>`;
+      }).join("");
+    }
+  }
+
+  const d=performance.diagnostics;
+  if(diagEl){
+    if(!d){
+      diagEl.innerHTML=`<div class="empty compact">Diagnostic splits will appear after Performance v0.2 is deployed.</div>`;
+    }else{
+      const sections=[
+        ["Model edge",d.edgeBuckets||[]],
+        ["Favorite / underdog",d.sideType||[]],
+        ["Home / away side",d.venueSide||[]],
+        ["Matchup level",d.matchupType||[]],
+        ["Closing-line value",d.clvDirection||[]]
+      ];
+      diagEl.innerHTML=sections.map(([title,rows])=>`
+        <section class="diagnostic-group">
+          <h4>${escapeHtml(title)}</h4>
+          ${rows.length?`<div class="table-wrap diagnostic-table-wrap"><table class="diagnostic-table">
+            <thead><tr><th>Bucket</th><th>ATS</th><th>Win%</th><th>Units</th><th>CLV</th><th>N</th></tr></thead>
+            <tbody>${rows.map(metricRow).join("")}</tbody>
+          </table></div>`:`<div class="empty compact">No graded actionable plays in this split.</div>`}
+        </section>`).join("");
+      if(Array.isArray(d.warnings)&&d.warnings.length){
+        diagEl.innerHTML+=`<div class="diagnostic-warning">⚠ ${d.warnings.map(escapeHtml).join(" • ")}</div>`;
+      }
+    }
+  }
 
   const recent=performance.recent||[];
   if(!recent.length){
@@ -333,8 +425,9 @@ function renderPerformance(){
   }
   $("recentResults").innerHTML=`<div class="recent-heading"><strong>Latest graded games</strong><span>Research rows are intentionally excluded from bankroll units.</span></div>
     <div class="table-wrap"><table class="bets-table performance-table">
-      <thead><tr><th>Game</th><th>Side</th><th>Class</th><th>Final</th><th>ATS</th><th>Margin</th><th>Units</th><th>CLV</th></tr></thead>
+      <thead><tr><th>Week</th><th>Game</th><th>Side</th><th>Class</th><th>Final</th><th>ATS</th><th>Margin</th><th>Units</th><th>CLV</th></tr></thead>
       <tbody>${recent.map(r=>`<tr>
+        <td>W${escapeHtml(String(r.week??"—"))}</td>
         <td>${escapeHtml(r.away)} @ ${escapeHtml(r.home)}</td>
         <td>${escapeHtml(r.recommendedTeam)} ${fmtLine(r.line)}</td>
         <td>${escapeHtml(r.classification||"—")}</td>
