@@ -1,6 +1,6 @@
 const LIVE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-board";
 const PERFORMANCE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-performance";
-const SETTINGS_VERSION = 8;
+const SETTINGS_VERSION = 9;
 
 const DEMO_GAMES = [
   {
@@ -128,7 +128,61 @@ function movementChip(g){
   return `<span class="movement-chip ${cls}">📈 First ${fmtLine(m.firstLine)} → Now ${fmtLine(capturedLine)} <small>${snapshots} snaps</small></span>`;
 }
 
-const LIVE_CACHE_KEY="se-live-board-cache-v064";
+function diagnosticFit(g){
+  let score=0;
+  const positives=[];
+  const cautions=[];
+  const line=Number(g?.marketLine);
+  const edge=Math.abs(Number(g?.edge||0));
+  const rec=String(g?.recommendedTeam||"").toLowerCase();
+  const away=String(g?.away||"").toLowerCase();
+  const home=String(g?.home||"").toLowerCase();
+  const move=movementFor(g);
+
+  // Week 1-4 research pattern: underdogs materially outperformed favorites.
+  if(Number.isFinite(line)){
+    if(line>0){ score+=2; positives.push("Underdog profile matched the strongest early diagnostic split."); }
+    else if(line<0){ score-=2; cautions.push("Favorite profile has underperformed in the first 65 actionable plays."); }
+  }
+
+  // Away sides have held up better than home sides in the prospective sample.
+  if(rec && away && rec===away){ score+=1; positives.push("Away-side profile has held up better so far."); }
+  else if(rec && home && rec===home){ score-=1; cautions.push("Home-side profile has lagged in the early sample."); }
+
+  // Current BetMGM price quality versus consensus.
+  const market=g?.marketConsensus;
+  if(market?.available){
+    const v=Number(market.betmgmVsConsensus||0);
+    if(v>=0){ score+=1; positives.push("BetMGM is aligned with or better than consensus for this side."); }
+    if(v<=-0.5){ score-=1; cautions.push("BetMGM is worse than consensus for this side."); }
+  }
+
+  // Historical model-edge buckets: 4.5-5.9 has been the cleanest early zone; 6+ has lagged.
+  if(edge>=4.5 && edge<6){ score+=1; positives.push("Model edge sits in the early 4.5–5.9 sweet spot."); }
+  else if(edge>=6 && edge<8){ score-=1; cautions.push("6.0–7.9 model edges have lagged so far."); }
+  else if(edge>=8){ score-=2; cautions.push("8+ point model gaps have been a caution bucket in the early sample."); }
+
+  // Movement is interpreted from the selected side's recorded spread. Negative change = market moved toward the side.
+  if(move && Number.isFinite(Number(move.lineChange))){
+    const change=Number(move.lineChange);
+    if(change<=-0.5){ score+=1; positives.push("Recorded line movement has confirmed the recommended side."); }
+    else if(change>=0.5){ score-=1; cautions.push("Recorded line movement has moved against the recommended side."); }
+  }
+
+  const level=score>=3?"FIT":score<=-2?"CAUTION":"MIXED";
+  return {
+    level, score, positives, cautions,
+    icon:level==="FIT"?"🟢":level==="CAUTION"?"🔴":"🟡",
+    css:level.toLowerCase()
+  };
+}
+
+function diagnosticFitChip(g){
+  const d=diagnosticFit(g);
+  return `<span class="fit-chip ${d.css}" title="Research overlay only. Does not change model v0.5.">${d.icon} ${d.level} FIT</span>`;
+}
+
+const LIVE_CACHE_KEY="se-live-board-cache-v065";
 const LIVE_CACHE_TTL_MS=5*60*1000;
 
 function readLiveCache(){
@@ -460,7 +514,7 @@ function render(){
       <div class="matchup">
         <strong>${escapeHtml(g.away)} @ ${escapeHtml(g.home)}</strong>
         <span>${fmtTime(g.kickoff)} • BetMGM ${fmtPrice(g.marketPrice??-110)} • Models: ${escapeHtml(systems)}</span>
-        <div class="market-row">${locked?`<span class="market-chip caution">🔒 PREGAME CARD LOCKED</span>`:""} ${marketChip(g)} <span class="consensus-text">Consensus ${consensus}${g.marketConsensus?.bookCount?` (${g.marketConsensus.bookCount} books)`:""}</span>${movementChip(g)}</div>
+        <div class="market-row">${locked?`<span class="market-chip caution">🔒 PREGAME CARD LOCKED</span>`:""} ${diagnosticFitChip(g)} ${marketChip(g)} <span class="consensus-text">Consensus ${consensus}${g.marketConsensus?.bookCount?` (${g.marketConsensus.bookCount} books)`:""}</span>${movementChip(g)}</div>
       </div>
       <div class="metric"><label>Best side</label><strong>${escapeHtml(g.recommendedTeam)}</strong></div>
       <div class="metric"><label>BetMGM</label><strong>${fmtLine(g.marketLine)}</strong></div>
@@ -485,6 +539,7 @@ function openWhy(id){
   const g=games.find(x=>x.id===id); if(!g) return;
   const m=g.marketConsensus||{};
   const move=movementFor(g);
+  const fit=diagnosticFit(g);
   const systems=Array.isArray(g.matchedSystems)&&g.matchedSystems.length?g.matchedSystems.join(", "):"None";
   const capturedDiffers=move&&Number.isFinite(Number(g.marketLine))&&Number.isFinite(Number(move.currentLine))
     ? Math.abs(Number(g.marketLine)-Number(move.currentLine))>=0.01
@@ -501,7 +556,13 @@ function openWhy(id){
     <div class="why-stat"><span>Model edge</span><strong class="edge-positive">+${Math.abs(Number(g.edge||0)).toFixed(1)} pts</strong></div>
     <div class="why-stat"><span>Market consensus</span><strong>${m.available?fmtLine(m.consensusLine):"Unavailable"}</strong></div>
     <div class="why-stat"><span>BetMGM vs market</span><strong>${m.available?`${Number(m.betmgmVsConsensus||0)>=0?"+":""}${Number(m.betmgmVsConsensus||0).toFixed(1)} pts`:"—"}</strong></div>
-    <div class="why-stat"><span>Rating systems</span><strong>${escapeHtml(systems)}</strong></div>${movementStats}
+    <div class="why-stat"><span>Rating systems</span><strong>${escapeHtml(systems)}</strong></div>
+    <div class="why-stat"><span>Diagnostic fit</span><strong>${fit.icon} ${fit.level} (${fit.score>=0?"+":""}${fit.score})</strong></div>${movementStats}
+  </div>
+  <div class="diagnostic-explain">
+    <strong>🧪 Research overlay only</strong>
+    <span>${escapeHtml(fit.positives.join(" ")||"No positive diagnostic flags.")}</span>
+    ${fit.cautions.length?`<span class="diag-caution">${escapeHtml(fit.cautions.join(" "))}</span>`:""}
   </div>
   <div class="reason-list">${(g.factors||[]).map(f=>`<div class="reason ${f.type||"info"}">${escapeHtml(f.text)}</div>`).join("")}</div>`;
   $("gameDialog").showModal();
