@@ -130,17 +130,20 @@ function movementChip(g){
 }
 
 function shadowFor(g){
-  const locked=(performance?.shadowSelector?.pending||[]).find(x=>x.gameId===g?.id);
+  const locked=performance?.shadow?.byGame?.[g?.id];
   if(locked){
+    const entryLine=locked.lockedLine;
     return {
       ...(g?.shadowSelector||{}),
       version:"Saturday Edge Shadow v0.1",
       state:"LOCKED",
       selected:true,
       locked:true,
-      entryLine:locked.entryLine,
+      entryLine,
       selectedAt:locked.selectedAt,
-      reasons:[`Locked prospectively at ${fmtLine(locked.entryLine)} when the game first met every Shadow Select v0.1 rule.`]
+      reasons:Array.isArray(locked.reasons)&&locked.reasons.length
+        ? locked.reasons
+        : [`Locked prospectively at ${fmtLine(entryLine)} when the game first met every Shadow Select v0.1 rule.`]
     };
   }
   if(g?.shadowSelector?.version){
@@ -386,13 +389,14 @@ function renderShadowPerformance(){
   const currentCount=$("shadowCurrentCount");
   if(currentCount) currentCount.textContent=String(liveSelects);
 
-  const shadow=performance?.shadowSelector;
+  const shadow=performance?.shadow;
   const fmtClv=value=>value===null||value===undefined||!Number.isFinite(Number(value))
     ?"—"
     :`${Number(value)>=0?"+":""}${Number(value).toFixed(2)}`;
 
-  if(!shadow){
-    $("shadowStatus").textContent="Shadow receipts will appear after Performance v0.3 is deployed.";
+  if(!shadow || shadow.enabled===false){
+    const detail=shadow?.readError?` ${shadow.readError}`:"";
+    $("shadowStatus").textContent=`Shadow receipts are unavailable.${detail}`;
     el.innerHTML=`
       <article class="performance-card hero-metric"><span>Shadow ATS</span><strong>0-0</strong><small>Week 8 forward only</small></article>
       <article class="performance-card"><span>Units</span><strong>+0.00u</strong><small>1u risk per selection</small></article>
@@ -403,8 +407,8 @@ function renderShadowPerformance(){
     return;
   }
 
-  const p=shadow.performance||{};
-  $("shadowStatus").textContent=`Prospective only • ${shadow.totalSelections||0} locked selection${Number(shadow.totalSelections||0)===1?"":"s"} • ${shadow.pendingSelections||0} pending`;
+  const p=shadow.overall||{};
+  $("shadowStatus").textContent=`Prospective only • ${p.selectedGames||0} locked selection${Number(p.selectedGames||0)===1?"":"s"} • ${p.pendingGames||0} pending`;
   el.innerHTML=`
     <article class="performance-card hero-metric"><span>Shadow ATS</span><strong>${record(p)}</strong><small>${fmtPct(p.atsWinRate)} • ${p.gradedGames||0} graded</small></article>
     <article class="performance-card"><span>Units</span><strong class="${Number(p.unitsProfit||0)>=0?"positive":"negative"}">${fmtUnits(p.unitsProfit??0)}</strong><small>1u risk per selection</small></article>
@@ -413,7 +417,7 @@ function renderShadowPerformance(){
 
   const weeks=Array.isArray(shadow.byWeek)?shadow.byWeek:[];
   $("shadowWeeks").innerHTML=weeks.length?weeks.map(w=>`<article class="week-card shadow-week-card">
-    <div class="week-card-head"><div><span>Season ${escapeHtml(String(w.season||"—"))}</span><strong>Week ${escapeHtml(String(w.week||"—"))}</strong></div><small>${w.gradedGames||0} selected</small></div>
+    <div class="week-card-head"><div><span>Season ${escapeHtml(String(w.season||"—"))}</span><strong>Week ${escapeHtml(String(w.week||"—"))}</strong></div><small>${w.selectedGames||0} selected • ${w.gradedGames||0} graded</small></div>
     <div class="week-record">${record(w)} <span>${fmtPct(w.atsWinRate)}</span></div>
     <div class="week-metrics"><span>Units <b class="${Number(w.unitsProfit||0)>=0?"positive":"negative"}">${fmtUnits(w.unitsProfit)}</b></span><span>ROI <b>${fmtPct(w.roi)}</b></span><span>CLV <b>${fmtClv(w.avgClv)}</b></span></div>
   </article>`).join(""):`<div class="empty compact">Week 8 is the first prospective Shadow Select week. No graded receipts yet.</div>`;
@@ -421,7 +425,7 @@ function renderShadowPerformance(){
   const recent=Array.isArray(shadow.recent)?shadow.recent:[];
   $("shadowRecent").innerHTML=recent.length?`<div class="recent-heading"><strong>Latest shadow selections</strong><span>Frozen at first qualifying pregame state.</span></div>
     <div class="table-wrap"><table class="bets-table performance-table"><thead><tr><th>Week</th><th>Game</th><th>Side</th><th>Entry</th><th>ATS</th><th>Margin</th><th>Units</th><th>CLV</th></tr></thead><tbody>${recent.map(r=>`<tr>
-      <td>W${escapeHtml(String(r.week??"—"))}</td><td>${escapeHtml(r.away)} @ ${escapeHtml(r.home)}</td><td>${escapeHtml(r.recommendedTeam)}</td><td>${fmtLine(r.line)}</td><td><span class="result-pill ${(r.atsResult||"").toLowerCase()}">${escapeHtml(r.atsResult||"—")}</span></td><td>${r.atsMargin===null?"—":`${Number(r.atsMargin)>=0?"+":""}${Number(r.atsMargin).toFixed(1)}`}</td><td>${fmtUnits(r.unitsProfit)}</td><td>${r.clv===null?"—":`${Number(r.clv)>=0?"+":""}${Number(r.clv).toFixed(1)}`}</td>
+      <td>W${escapeHtml(String(r.week??"—"))}</td><td>${escapeHtml(r.away)} @ ${escapeHtml(r.home)}</td><td>${escapeHtml(r.recommendedTeam)}</td><td>${fmtLine(r.lockedLine)}</td><td><span class="result-pill ${(r.atsResult||r.status||"").toLowerCase()}">${escapeHtml(r.atsResult||r.status||"—")}</span></td><td>${r.atsMargin===null?"—":`${Number(r.atsMargin)>=0?"+":""}${Number(r.atsMargin).toFixed(1)}`}</td><td>${fmtUnits(r.unitsProfit)}</td><td>${r.closingLineValue===null?"—":`${Number(r.closingLineValue)>=0?"+":""}${Number(r.closingLineValue).toFixed(1)}`}</td>
     </tr>`).join("")}</tbody></table></div>`:"";
 }
 
