@@ -98,3 +98,14 @@ dialog{width:min(720px,calc(100vw - 28px));border:1px solid #365344;background:#
 
 /* v0.6.5 diagnostic-fit research overlay */
 .diagnostic-legend{margin:-2px 0 16px;padding:11px 14px;border:1px solid #2b4637;border-radius:13px;background:rgba(18,34,25,.72);color:var(--muted);font-size:11px;line-height:1.5}.diagnostic-legend strong{color:#b9f4cd}.fit-chip{display:inline-flex;align-items:center;padding:5px 8px;border-radius:999px;font-size:10px;font-weight:900;letter-spacing:.04em;border:1px solid;margin:0!important}.fit-chip.fit{color:#91f5b8;border-color:#2f7e4c;background:rgba(53,239,125,.08)}.fit-chip.mixed{color:var(--yellow);border-color:#63552d;background:rgba(246,194,61,.07)}.fit-chip.caution{color:#ff9c9c;border-color:#674040;background:rgba(255,107,107,.06)}.diagnostic-explain{display:grid;gap:7px;margin:14px 0;padding:13px 14px;border:1px solid #294b37;border-radius:13px;background:rgba(84,240,143,.035);font-size:12px;line-height:1.5}.diagnostic-explain strong{color:#a6f4c3}.diagnostic-explain span{color:var(--muted)}.diagnostic-explain .diag-caution{color:#efc66f}
+
+
+/* v0.6.6 Shadow Select v0.1 */
+.shadow-section{margin:28px 0 36px;padding:24px;border:1px solid #355a45;border-radius:22px;background:linear-gradient(180deg,rgba(13,35,23,.94),rgba(7,21,14,.94));box-shadow:inset 0 0 70px rgba(84,240,143,.045)}
+.shadow-badge{color:#d5ffe4;border-color:#3c7a53;background:rgba(84,240,143,.09)}
+.shadow-rule{margin:16px 0 4px;padding:13px 15px;border:1px solid #355a45;border-radius:14px;background:rgba(84,240,143,.045);color:#c7d7cd;font-size:11px;line-height:1.55}.shadow-rule strong{color:#b8f7ce}.shadow-rule span{display:block;margin-top:4px;color:var(--muted)}
+.shadow-grid .hero-metric{border-color:#3b8055}.shadow-week-card{border-color:#315e42}
+.shadow-chip{display:inline-flex;align-items:center;padding:5px 8px;border-radius:999px;font-size:10px;font-weight:900;letter-spacing:.04em;border:1px solid;margin:0!important}.shadow-chip.select{color:#9affbd;border-color:#2f7e4c;background:rgba(53,239,125,.1)}.shadow-chip.watch{color:#f5d16f;border-color:#63552d;background:rgba(246,194,61,.07)}.shadow-chip.caution{color:#ff9c9c;border-color:#674040;background:rgba(255,107,107,.06)}.shadow-chip.neutral{color:#a7b8ae;border-color:var(--line);background:rgba(255,255,255,.025)}
+.shadow-legend strong{color:#b8f7ce}
+.shadow-tabs .shadow-tab.active{background:#dfffea;border-color:#dfffea;color:#07120c}
+@media(max-width:620px){.shadow-section{padding:17px}.shadow-rule{font-size:10px}}

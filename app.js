@@ -1,6 +1,6 @@
 const LIVE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-board";
 const PERFORMANCE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-performance";
-const SETTINGS_VERSION = 9;
+const SETTINGS_VERSION = 10;
 
 const DEMO_GAMES = [
   {
@@ -35,6 +35,7 @@ let settings = loadSettings();
 let games = [];
 let currentFilter = "ALL";
 let currentTimeFilter = "ALL";
+let currentShadowFilter = "ALL";
 let currentBetGame = null;
 let lastPayload = null;
 let performance = null;
@@ -128,61 +129,66 @@ function movementChip(g){
   return `<span class="movement-chip ${cls}">📈 First ${fmtLine(m.firstLine)} → Now ${fmtLine(capturedLine)} <small>${snapshots} snaps</small></span>`;
 }
 
-function diagnosticFit(g){
-  let score=0;
-  const positives=[];
-  const cautions=[];
+function shadowFor(g){
+  const locked=(performance?.shadowSelector?.pending||[]).find(x=>x.gameId===g?.id);
+  if(locked){
+    return {
+      ...(g?.shadowSelector||{}),
+      version:"Saturday Edge Shadow v0.1",
+      state:"LOCKED",
+      selected:true,
+      locked:true,
+      entryLine:locked.entryLine,
+      selectedAt:locked.selectedAt,
+      reasons:[`Locked prospectively at ${fmtLine(locked.entryLine)} when the game first met every Shadow Select v0.1 rule.`]
+    };
+  }
+  if(g?.shadowSelector?.version){
+    return g.shadowSelector;
+  }
+
   const line=Number(g?.marketLine);
   const edge=Math.abs(Number(g?.edge||0));
-  const rec=String(g?.recommendedTeam||"").toLowerCase();
-  const away=String(g?.away||"").toLowerCase();
-  const home=String(g?.home||"").toLowerCase();
-  const move=movementFor(g);
-
-  // Week 1-4 research pattern: underdogs materially outperformed favorites.
-  if(Number.isFinite(line)){
-    if(line>0){ score+=2; positives.push("Underdog profile matched the strongest early diagnostic split."); }
-    else if(line<0){ score-=2; cautions.push("Favorite profile has underperformed in the first 65 actionable plays."); }
-  }
-
-  // Away sides have held up better than home sides in the prospective sample.
-  if(rec && away && rec===away){ score+=1; positives.push("Away-side profile has held up better so far."); }
-  else if(rec && home && rec===home){ score-=1; cautions.push("Home-side profile has lagged in the early sample."); }
-
-  // Current BetMGM price quality versus consensus.
   const market=g?.marketConsensus;
-  if(market?.available){
-    const v=Number(market.betmgmVsConsensus||0);
-    if(v>=0){ score+=1; positives.push("BetMGM is aligned with or better than consensus for this side."); }
-    if(v<=-0.5){ score-=1; cautions.push("BetMGM is worse than consensus for this side."); }
+  const vs=market?.available&&Number.isFinite(Number(market.betmgmVsConsensus))?Number(market.betmgmVsConsensus):null;
+  const eligible=g?.eligibleForRecommendation===true&&Number(g?.ratingSystemCount??0)>=2;
+  const reasons=[];
+  let state="NEUTRAL";
+  const selected=eligible&&Number.isFinite(line)&&line>0&&edge>=4.5&&edge<6&&market?.available&&vs!==null&&vs>=0;
+  if(selected){
+    state="SELECT";
+    reasons.push("Underdog + 4.5–5.9 edge + BetMGM aligned with/better than consensus.");
+  }else if((Number.isFinite(line)&&line<0)||edge>=8){
+    state="CAUTION";
+    if(line<0) reasons.push("Favorite profile is a locked caution.");
+    if(edge>=8) reasons.push("8+ point model gaps are a locked caution.");
+  }else if(eligible&&Number.isFinite(line)&&line>0&&edge>=3&&edge<6){
+    state="WATCH";
+    reasons.push("Underdog profile is interesting but does not meet every locked SELECT rule.");
   }
-
-  // Historical model-edge buckets: 4.5-5.9 has been the cleanest early zone; 6+ has lagged.
-  if(edge>=4.5 && edge<6){ score+=1; positives.push("Model edge sits in the early 4.5–5.9 sweet spot."); }
-  else if(edge>=6 && edge<8){ score-=1; cautions.push("6.0–7.9 model edges have lagged so far."); }
-  else if(edge>=8){ score-=2; cautions.push("8+ point model gaps have been a caution bucket in the early sample."); }
-
-  // Movement is interpreted from the selected side's recorded spread. Negative change = market moved toward the side.
-  if(move && Number.isFinite(Number(move.lineChange))){
-    const change=Number(move.lineChange);
-    if(change<=-0.5){ score+=1; positives.push("Recorded line movement has confirmed the recommended side."); }
-    else if(change>=0.5){ score-=1; cautions.push("Recorded line movement has moved against the recommended side."); }
-  }
-
-  const level=score>=3?"FIT":score<=-2?"CAUTION":"MIXED";
-  return {
-    level, score, positives, cautions,
-    icon:level==="FIT"?"🟢":level==="CAUTION"?"🔴":"🟡",
-    css:level.toLowerCase()
-  };
+  return {version:"Saturday Edge Shadow v0.1",state,selected,reasons,reasonCodes:[],score:0};
 }
 
-function diagnosticFitChip(g){
-  const d=diagnosticFit(g);
-  return `<span class="fit-chip ${d.css}" title="Research overlay only. Does not change model v0.5.">${d.icon} ${d.level} FIT</span>`;
+function shadowChip(g){
+  const d=shadowFor(g);
+  const meta={
+    SELECT:["🧪","SELECT","select"],
+    LOCKED:["🔒","LOCKED SELECT","select"],
+    WATCH:["👀","WATCH","watch"],
+    CAUTION:["⛔","CAUTION","caution"],
+    NEUTRAL:["•","NEUTRAL","neutral"]
+  }[d.state]||["•","NEUTRAL","neutral"];
+  return `<span class="shadow-chip ${meta[2]}" title="Shadow Select v0.1 is prospective research only.">${meta[0]} ${meta[1]}</span>`;
 }
 
-const LIVE_CACHE_KEY="se-live-board-cache-v065";
+function matchesShadowFilter(g){
+  if(currentShadowFilter==="ALL") return true;
+  const state=shadowFor(g).state;
+  if(currentShadowFilter==="SELECT") return state==="SELECT" || state==="LOCKED";
+  return state===currentShadowFilter;
+}
+
+const LIVE_CACHE_KEY="se-live-board-cache-v066";
 const LIVE_CACHE_TTL_MS=5*60*1000;
 
 function readLiveCache(){
@@ -256,6 +262,7 @@ async function loadGames(){
   }finally{
     $("refreshBtn").disabled=false;
     renderCoverage();
+    renderShadowPerformance();
     render();
   }
 }
@@ -264,7 +271,7 @@ async function loadPerformance(){
   if(settings.mode!=="live"){
     performance=null;
     $("performanceStatus").textContent="Performance receipts are available in live mode.";
-    renderPerformance();
+    renderPerformance(); renderShadowPerformance();
     return;
   }
   try{
@@ -278,7 +285,7 @@ async function loadPerformance(){
     console.error(err); performance=null;
     $("performanceStatus").textContent=`Performance feed unavailable: ${err.message}`;
   }
-  renderPerformance(); render();
+  renderPerformance(); renderShadowPerformance(); render();
 }
 
 function renderCoverage(){
@@ -369,6 +376,53 @@ function renderCoverage(){
       </div>
     </details>
     ${feedSummary}`;
+}
+
+function renderShadowPerformance(){
+  const el=$("shadowGrid");
+  if(!el) return;
+
+  const liveSelects=games.filter(g=>["SELECT","LOCKED"].includes(shadowFor(g).state)).length;
+  const currentCount=$("shadowCurrentCount");
+  if(currentCount) currentCount.textContent=String(liveSelects);
+
+  const shadow=performance?.shadowSelector;
+  const fmtClv=value=>value===null||value===undefined||!Number.isFinite(Number(value))
+    ?"—"
+    :`${Number(value)>=0?"+":""}${Number(value).toFixed(2)}`;
+
+  if(!shadow){
+    $("shadowStatus").textContent="Shadow receipts will appear after Performance v0.3 is deployed.";
+    el.innerHTML=`
+      <article class="performance-card hero-metric"><span>Shadow ATS</span><strong>0-0</strong><small>Week 8 forward only</small></article>
+      <article class="performance-card"><span>Units</span><strong>+0.00u</strong><small>1u risk per selection</small></article>
+      <article class="performance-card"><span>Avg CLV</span><strong>—</strong><small>Entry vs observed close</small></article>
+      <article class="performance-card"><span>Current selects</span><strong>${liveSelects}</strong><small>live board candidates</small></article>`;
+    $("shadowWeeks").innerHTML=`<div class="empty compact">No Shadow Select v0.1 graded games yet.</div>`;
+    $("shadowRecent").innerHTML="";
+    return;
+  }
+
+  const p=shadow.performance||{};
+  $("shadowStatus").textContent=`Prospective only • ${shadow.totalSelections||0} locked selection${Number(shadow.totalSelections||0)===1?"":"s"} • ${shadow.pendingSelections||0} pending`;
+  el.innerHTML=`
+    <article class="performance-card hero-metric"><span>Shadow ATS</span><strong>${record(p)}</strong><small>${fmtPct(p.atsWinRate)} • ${p.gradedGames||0} graded</small></article>
+    <article class="performance-card"><span>Units</span><strong class="${Number(p.unitsProfit||0)>=0?"positive":"negative"}">${fmtUnits(p.unitsProfit??0)}</strong><small>1u risk per selection</small></article>
+    <article class="performance-card"><span>Avg CLV</span><strong>${fmtClv(p.avgClv)}</strong><small>Entry vs observed close</small></article>
+    <article class="performance-card"><span>Current selects</span><strong>${liveSelects}</strong><small>live board candidates</small></article>`;
+
+  const weeks=Array.isArray(shadow.byWeek)?shadow.byWeek:[];
+  $("shadowWeeks").innerHTML=weeks.length?weeks.map(w=>`<article class="week-card shadow-week-card">
+    <div class="week-card-head"><div><span>Season ${escapeHtml(String(w.season||"—"))}</span><strong>Week ${escapeHtml(String(w.week||"—"))}</strong></div><small>${w.gradedGames||0} selected</small></div>
+    <div class="week-record">${record(w)} <span>${fmtPct(w.atsWinRate)}</span></div>
+    <div class="week-metrics"><span>Units <b class="${Number(w.unitsProfit||0)>=0?"positive":"negative"}">${fmtUnits(w.unitsProfit)}</b></span><span>ROI <b>${fmtPct(w.roi)}</b></span><span>CLV <b>${fmtClv(w.avgClv)}</b></span></div>
+  </article>`).join(""):`<div class="empty compact">Week 8 is the first prospective Shadow Select week. No graded receipts yet.</div>`;
+
+  const recent=Array.isArray(shadow.recent)?shadow.recent:[];
+  $("shadowRecent").innerHTML=recent.length?`<div class="recent-heading"><strong>Latest shadow selections</strong><span>Frozen at first qualifying pregame state.</span></div>
+    <div class="table-wrap"><table class="bets-table performance-table"><thead><tr><th>Week</th><th>Game</th><th>Side</th><th>Entry</th><th>ATS</th><th>Margin</th><th>Units</th><th>CLV</th></tr></thead><tbody>${recent.map(r=>`<tr>
+      <td>W${escapeHtml(String(r.week??"—"))}</td><td>${escapeHtml(r.away)} @ ${escapeHtml(r.home)}</td><td>${escapeHtml(r.recommendedTeam)}</td><td>${fmtLine(r.line)}</td><td><span class="result-pill ${(r.atsResult||"").toLowerCase()}">${escapeHtml(r.atsResult||"—")}</span></td><td>${r.atsMargin===null?"—":`${Number(r.atsMargin)>=0?"+":""}${Number(r.atsMargin).toFixed(1)}`}</td><td>${fmtUnits(r.unitsProfit)}</td><td>${r.clv===null?"—":`${Number(r.clv)>=0?"+":""}${Number(r.clv).toFixed(1)}`}</td>
+    </tr>`).join("")}</tbody></table></div>`:"";
 }
 
 function renderPerformance(){
@@ -498,7 +552,8 @@ function render(){
   const sort=$("sortSelect").value;
   let shown=games.filter(g=>
     (currentFilter==="ALL"||g.classification===currentFilter) &&
-    matchesTimeFilter(g)
+    matchesTimeFilter(g) &&
+    matchesShadowFilter(g)
   );
   shown.sort((a,b)=>{
     if(sort==="time") return new Date(a.kickoff)-new Date(b.kickoff);
@@ -514,7 +569,7 @@ function render(){
       <div class="matchup">
         <strong>${escapeHtml(g.away)} @ ${escapeHtml(g.home)}</strong>
         <span>${fmtTime(g.kickoff)} • BetMGM ${fmtPrice(g.marketPrice??-110)} • Models: ${escapeHtml(systems)}</span>
-        <div class="market-row">${locked?`<span class="market-chip caution">🔒 PREGAME CARD LOCKED</span>`:""} ${diagnosticFitChip(g)} ${marketChip(g)} <span class="consensus-text">Consensus ${consensus}${g.marketConsensus?.bookCount?` (${g.marketConsensus.bookCount} books)`:""}</span>${movementChip(g)}</div>
+        <div class="market-row">${locked?`<span class="market-chip caution">🔒 PREGAME CARD LOCKED</span>`:""} ${shadowChip(g)} ${marketChip(g)} <span class="consensus-text">Consensus ${consensus}${g.marketConsensus?.bookCount?` (${g.marketConsensus.bookCount} books)`:""}</span>${movementChip(g)}</div>
       </div>
       <div class="metric"><label>Best side</label><strong>${escapeHtml(g.recommendedTeam)}</strong></div>
       <div class="metric"><label>BetMGM</label><strong>${fmtLine(g.marketLine)}</strong></div>
@@ -539,7 +594,7 @@ function openWhy(id){
   const g=games.find(x=>x.id===id); if(!g) return;
   const m=g.marketConsensus||{};
   const move=movementFor(g);
-  const fit=diagnosticFit(g);
+  const shadow=shadowFor(g);
   const systems=Array.isArray(g.matchedSystems)&&g.matchedSystems.length?g.matchedSystems.join(", "):"None";
   const capturedDiffers=move&&Number.isFinite(Number(g.marketLine))&&Number.isFinite(Number(move.currentLine))
     ? Math.abs(Number(g.marketLine)-Number(move.currentLine))>=0.01
@@ -557,12 +612,12 @@ function openWhy(id){
     <div class="why-stat"><span>Market consensus</span><strong>${m.available?fmtLine(m.consensusLine):"Unavailable"}</strong></div>
     <div class="why-stat"><span>BetMGM vs market</span><strong>${m.available?`${Number(m.betmgmVsConsensus||0)>=0?"+":""}${Number(m.betmgmVsConsensus||0).toFixed(1)} pts`:"—"}</strong></div>
     <div class="why-stat"><span>Rating systems</span><strong>${escapeHtml(systems)}</strong></div>
-    <div class="why-stat"><span>Diagnostic fit</span><strong>${fit.icon} ${fit.level} (${fit.score>=0?"+":""}${fit.score})</strong></div>${movementStats}
+    <div class="why-stat"><span>Shadow Select</span><strong>${shadow.state}</strong></div>${movementStats}
   </div>
   <div class="diagnostic-explain">
-    <strong>🧪 Research overlay only</strong>
-    <span>${escapeHtml(fit.positives.join(" ")||"No positive diagnostic flags.")}</span>
-    ${fit.cautions.length?`<span class="diag-caution">${escapeHtml(fit.cautions.join(" "))}</span>`:""}
+    <strong>🧪 Shadow Select v0.1</strong>
+    <span>${escapeHtml((shadow.reasons||[]).join(" ")||"This game does not currently trigger a locked shadow rule.")}</span>
+    <span class="diag-caution">Prospective only. MODEL v0.5 classification is unchanged.</span>
   </div>
   <div class="reason-list">${(g.factors||[]).map(f=>`<div class="reason ${f.type||"info"}">${escapeHtml(f.text)}</div>`).join("")}</div>`;
   $("gameDialog").showModal();
@@ -617,6 +672,15 @@ $("tabs").addEventListener("click",e=>{
   render();
 });
 
+$("shadowTabs").addEventListener("click",e=>{
+  const btn=e.target.closest(".shadow-tab");
+  if(!btn)return;
+  $("shadowTabs").querySelectorAll(".shadow-tab").forEach(x=>x.classList.remove("active"));
+  btn.classList.add("active");
+  currentShadowFilter=btn.dataset.shadowFilter;
+  render();
+});
+
 $("timeTabs").addEventListener("click",e=>{
   const btn=e.target.closest(".time-tab");
   if(!btn)return;
@@ -645,7 +709,7 @@ $("clearBetsBtn").addEventListener("click",()=>{if(confirm("Clear every wager fr
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=63").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=66").catch(()=>{}));}
 (async()=>{
   await loadGames();
   await loadPerformance();

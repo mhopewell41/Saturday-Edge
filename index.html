@@ -7,7 +7,7 @@
   <title>Saturday Edge</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=65" />
+  <link rel="stylesheet" href="styles.css?v=66" />
 </head>
 <body>
   <div class="app-shell">
@@ -27,7 +27,7 @@
 
     <section class="hero">
       <div>
-        <div class="eyebrow">BETMGM • SPREADS • APP v0.6.5 • MODEL v0.5</div>
+        <div class="eyebrow">BETMGM • SPREADS • APP v0.6.6 • MODEL v0.5 • SHADOW v0.1</div>
         <h2>Find the number.<br><span>Keep the receipts.</span></h2>
         <p id="statusText">Loading the live board…</p>
       </div>
@@ -63,6 +63,42 @@
       </div>
 
       <div id="coverageDetails" class="coverage-details"></div>
+    </section>
+
+    <section class="shadow-section">
+      <div class="section-heading performance-heading">
+        <div>
+          <div class="eyebrow">WEEK 8+ PROSPECTIVE TEST</div>
+          <h2>Shadow Select v0.1</h2>
+          <p id="shadowStatus">Loading the separate shadow ledger…</p>
+        </div>
+        <div class="evidence-badge shadow-badge">🧪 Rules locked</div>
+      </div>
+
+      <div class="shadow-rule">
+        <strong>SELECT rule:</strong> underdog + 4.5–5.9 model edge + BetMGM aligned with or better than consensus + at least 2 rating systems.
+        <span>Realized CLV is measured afterward. It is never used with hindsight to decide what qualified.</span>
+      </div>
+
+      <div id="shadowGrid" class="performance-grid shadow-grid">
+        <article class="performance-card hero-metric"><span>Shadow ATS</span><strong>0-0</strong><small>Week 8 forward only</small></article>
+        <article class="performance-card"><span>Units</span><strong>+0.00u</strong><small>1u risk per selection</small></article>
+        <article class="performance-card"><span>Avg CLV</span><strong>—</strong><small>Entry vs observed close</small></article>
+        <article class="performance-card"><span>Current selects</span><strong id="shadowCurrentCount">0</strong><small>live board candidates</small></article>
+      </div>
+
+      <div class="evidence-subsection">
+        <div class="subsection-heading">
+          <div>
+            <div class="eyebrow">SHADOW RECEIPTS</div>
+            <h3>Week by Week</h3>
+          </div>
+          <span>Separate from MODEL v0.5 bankroll accounting</span>
+        </div>
+        <div id="shadowWeeks" class="week-grid"></div>
+      </div>
+
+      <div id="shadowRecent" class="recent-results"></div>
     </section>
 
     <section class="performance-section">
@@ -103,7 +139,7 @@
 
       <div id="recentResults" class="recent-results"></div>
 
-      <p class="sample-warning">Early records are descriptive, not proof of an edge. Saturday Edge will not retune model weights from a tiny sample.</p>
+      <p class="sample-warning">MODEL v0.5 remains frozen for historical integrity. Shadow Select v0.1 is graded separately from Week 8 forward.</p>
     </section>
 
     <section class="controls">
@@ -116,6 +152,16 @@
             <button class="tab" data-filter="PLAYABLE">🟢 Playable</button>
             <button class="tab" data-filter="LEAN">🟡 Lean</button>
             <button class="tab" data-filter="PASS">🔴 Pass</button>
+          </div>
+        </div>
+
+        <div>
+          <div class="filter-label">Shadow selector</div>
+          <div class="tabs shadow-tabs" id="shadowTabs">
+            <button class="tab shadow-tab active" data-shadow-filter="ALL">All</button>
+            <button class="tab shadow-tab" data-shadow-filter="SELECT">🧪 Select</button>
+            <button class="tab shadow-tab" data-shadow-filter="WATCH">👀 Watch</button>
+            <button class="tab shadow-tab" data-shadow-filter="CAUTION">⛔ Caution</button>
           </div>
         </div>
 
@@ -140,8 +186,8 @@
       </div>
     </section>
 
-    <div class="diagnostic-legend">
-      <strong>🧪 Diagnostic Fit</strong> is a research overlay from the first 65 actionable plays. It favors profiles that have held up better so far, but it does not change MODEL v0.5 or the official STRONG / PLAYABLE / LEAN / PASS classification.
+    <div class="diagnostic-legend shadow-legend">
+      <strong>🧪 Shadow Select v0.1</strong> is a locked prospective experiment starting in Week 8. It does not change MODEL v0.5, does not rewrite earlier games, and does not promote a selection after the result is known.
     </div>
 
     <main>
@@ -223,6 +269,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=65"></script>
+  <script src="app.js?v=66"></script>
 </body>
 </html>
