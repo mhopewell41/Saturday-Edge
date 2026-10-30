@@ -7,7 +7,7 @@
   <title>Saturday Edge</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=70" />
+  <link rel="stylesheet" href="styles.css?v=71" />
 </head>
 <body>
   <div class="app-shell">
@@ -27,7 +27,7 @@
 
     <section class="hero">
       <div>
-        <div class="eyebrow">BETMGM • SPREADS • APP v0.7.0 • MODEL v0.5 • SHADOW v0.1 • LIVE v0.1</div>
+        <div class="eyebrow">BETMGM • SPREADS • APP v0.7.1 • MODEL v0.5 • SHADOW v0.1 • LIVE v0.1 • MGM LEDGER v0.1</div>
         <h2>Find the number.<br><span>Keep the receipts.</span></h2>
         <p id="statusText">Loading the live board…</p>
       </div>
@@ -201,19 +201,39 @@
       <div id="emptyState" class="empty hidden">No games match this filter.</div>
     </main>
 
-    <section class="tracker-section">
-      <div class="section-heading">
+    <section class="tracker-section betmgm-performance-section">
+      <div class="section-heading betmgm-heading">
         <div>
-          <div class="eyebrow">PERSONAL LEDGER</div>
-          <h2>My Bets</h2>
+          <div class="eyebrow">PERSONAL SPORTSBOOK LEDGER</div>
+          <h2>💰 My BetMGM Performance</h2>
+          <p class="ledger-note">Stored locally on this device. MODEL v0.5, Shadow Select, and Live Edge research records are never changed by your personal wagers.</p>
         </div>
-        <button id="clearBetsBtn" class="btn ghost danger">Clear ledger</button>
+        <div class="ledger-actions">
+          <button id="openBetMgmBtn" class="btn primary" type="button">↗ Open BetMGM</button>
+          <button id="checkBetResultsBtn" class="btn ghost" type="button">✓ Check Results</button>
+          <button id="exportBetsBtn" class="btn ghost" type="button">Export</button>
+          <button id="importBetsBtn" class="btn ghost" type="button">Import</button>
+          <input id="importBetsFile" type="file" accept="application/json,.json" class="hidden" />
+        </div>
       </div>
+
+      <div id="betmgmPerformanceGrid" class="performance-grid betmgm-grid">
+        <article class="performance-card hero-metric"><span>Personal ATS</span><strong id="personalRecord">0-0</strong><small id="personalRecordSub">0 graded • 0 pending</small></article>
+        <article class="performance-card"><span>Net units</span><strong id="personalUnits">+0.00u</strong><small id="personalUnitsSub">0.0u graded risk</small></article>
+        <article class="performance-card"><span>ROI</span><strong id="personalRoi">—</strong><small>graded wager units</small></article>
+        <article class="performance-card"><span>Net $</span><strong id="personalDollars">$0.00</strong><small id="personalDollarsSub">Add stake $ to track cash P/L</small></article>
+      </div>
+
+      <div id="personalSplits" class="performance-breakdown personal-splits"></div>
+
       <div class="tracker-summary">
         <div><span>Tracked bets</span><strong id="betCount">0</strong></div>
-        <div><span>Units risked</span><strong id="unitsRisked">0.0u</strong></div>
+        <div><span>Units entered</span><strong id="unitsRisked">0.0u</strong></div>
+        <div><span>Pending</span><strong id="pendingBetCount">0</strong></div>
       </div>
+      <div id="betCheckStatus" class="ledger-status">Results are checked against Saturday Edge final results, with CFBD fallback when available.</div>
       <div id="betsTableWrap" class="table-wrap"></div>
+      <div class="ledger-footer-actions"><button id="clearBetsBtn" class="btn ghost danger">Clear ledger</button></div>
     </section>
     </div>
 
@@ -323,6 +343,7 @@
       <div id="betContext" class="bet-context hidden"></div>
       <label>Bet side<select id="betTeam" required></select></label>
       <label>Units risked<input id="betUnits" type="number" min="0.1" step="0.1" value="1" required /></label>
+      <label>Stake $ <input id="betStake" type="number" min="0" step="0.01" placeholder="Optional, e.g. 25.00" /></label>
       <label>BetMGM line<input id="betLine" type="number" step="0.5" required /></label>
       <label>Price<input id="betPrice" type="number" step="1" value="-110" required /></label>
       <label>Notes<input id="betNotes" type="text" maxlength="120" placeholder="Optional" /></label>
@@ -330,6 +351,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=70"></script>
+  <script src="app.js?v=71"></script>
 </body>
 </html>

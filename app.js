@@ -1,7 +1,9 @@
 const LIVE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-board";
 const PERFORMANCE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-performance";
 const LIVE_EDGE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-live";
-const SETTINGS_VERSION = 11;
+const BET_CHECK_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-bet-check";
+const BETMGM_URL = "https://sports.betmgm.com/";
+const SETTINGS_VERSION = 12;
 const LIVE_AUTO_REFRESH_MS = 2 * 60 * 1000;
 
 const DEMO_GAMES = [
@@ -338,7 +340,7 @@ function renderLive(){
       <div class="live-signal-row"><span class="live-signal ${meta[1]}">${meta[0]}</span><span>Research-only v0.1 • remaining game ${(Number(lm.remainingFraction||0)*100).toFixed(0)}%</span></div>
       <div class="live-history"><label>BetMGM live-line trail</label><div>${liveHistoryHtml(g)}</div></div>
       ${cautions}
-      <div class="card-actions live-card-actions"><button class="small-btn" onclick="openLiveWhy('${escapeHtml(g.gameId)}')">DETAILS</button>${canTrack?`<button class="small-btn bet" onclick="openLiveBet('${escapeHtml(g.gameId)}')">+ Track Live Bet</button>`:`<button class="small-btn locked" disabled>Line unavailable</button>`}</div>
+      <div class="card-actions live-card-actions"><button class="small-btn" onclick="openLiveWhy('${escapeHtml(g.gameId)}')">DETAILS</button><button class="small-btn mgm" onclick="openBetMgm()">↗ BetMGM</button>${canTrack?`<button class="small-btn bet" onclick="openLiveBet('${escapeHtml(g.gameId)}')">+ Bet Placed</button>`:`<button class="small-btn locked" disabled>Line unavailable</button>`}</div>
     </article>`;
   }).join("");
   renderLiveBets();
@@ -389,7 +391,7 @@ function openLiveBet(id){
   $("betDialogTitle").textContent=`Live bet • ${g.away} @ ${g.home}`;
   $("betContext").classList.remove("hidden");
   $("betContext").innerHTML=`<strong>${escapeHtml(liveGameState(g))}</strong> • Score ${g.awayScore??"—"}–${g.homeScore??"—"} • Live Edge signal ${escapeHtml(g.liveModel?.signalLabel||g.liveModel?.signal||"TRACK ONLY")}`;
-  $("betUnits").value="1"; $("betNotes").value=""; $("betDialog").showModal();
+  $("betUnits").value="1"; $("betStake").value=""; $("betNotes").value=""; $("betDialog").showModal();
 }
 window.openLiveBet=openLiveBet;
 
@@ -398,9 +400,9 @@ function renderLiveBets(){
   const rows=all.filter(x=>x.b.kind==="LIVE");
   $("liveBetCount").textContent=rows.length;
   $("liveUnitsRisked").textContent=`${rows.reduce((s,x)=>s+Number(x.b.units||0),0).toFixed(1)}u`;
-  if(!rows.length){$("liveBetsTableWrap").innerHTML=`<div class="empty">No in-game bets tracked yet. Use “+ Track Live Bet” on a live card.</div>`;return;}
-  $("liveBetsTableWrap").innerHTML=`<table class="bets-table"><thead><tr><th>Time</th><th>Game</th><th>State</th><th>Side</th><th>Line</th><th>Price</th><th>Units</th><th>Live edge</th><th></th></tr></thead><tbody>${rows.map(({b,i})=>`<tr>
-    <td>${new Date(b.createdAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}</td><td>${escapeHtml(b.gameState||"LIVE")}<br><small>${escapeHtml(b.scoreAtBet||"")}</small></td><td>${escapeHtml(b.team)}</td><td>${fmtLine(b.line)}</td><td>${fmtPrice(b.price)}</td><td>${Number(b.units).toFixed(1)}u</td><td>${b.edge===null||b.edge===undefined?"—":`${Number(b.edge)>=0?"+":""}${Number(b.edge).toFixed(1)}`}</td><td><button class="small-btn" onclick="removeBet(${i})">Remove</button></td>
+  if(!rows.length){$("liveBetsTableWrap").innerHTML=`<div class="empty">No in-game BetMGM wagers tracked yet. Use “+ Bet Placed” on a live card.</div>`;return;}
+  $("liveBetsTableWrap").innerHTML=`<table class="bets-table"><thead><tr><th>Time</th><th>Game</th><th>State</th><th>Side</th><th>Line</th><th>Stake</th><th>Result</th><th>Net</th><th>Live edge</th><th></th></tr></thead><tbody>${rows.map(({b,i})=>`<tr>
+    <td>${new Date(b.createdAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}</td><td>${escapeHtml(b.gameState||"LIVE")}<br><small>${escapeHtml(b.scoreAtBet||"")}</small></td><td>${escapeHtml(b.team)} ${fmtLine(b.line)}<br><small>${fmtPrice(b.price)}</small></td><td>${fmtLine(b.line)}</td><td>${Number(b.stake)>0?`$${Number(b.stake).toFixed(2)}`:`${Number(b.units).toFixed(1)}u`}</td><td>${resultPill(b)}</td><td>${["WIN","LOSS","PUSH"].includes(b.result)?fmtUnits(b.unitsProfit):"—"}</td><td>${b.edge===null||b.edge===undefined?"—":`${Number(b.edge)>=0?"+":""}${Number(b.edge).toFixed(1)}`}</td><td><button class="small-btn" onclick="removeBet(${i})">Remove</button></td>
   </tr>`).join("")}</tbody></table>`;
 }
 
@@ -808,7 +810,7 @@ function render(){
       <div class="metric"><label>Our line</label><strong>${fmtLine(g.projectedLine)}</strong></div>
       <div class="metric"><label>Edge</label><strong class="edge-positive">+${Math.abs(Number(g.edge||0)).toFixed(1)}</strong></div>
       <div class="rating"><span class="badge ${escapeHtml(g.classification)}">${badgeText(g.classification)} ${Math.round(Number(g.edgeScore||0))}</span></div>
-      <div class="card-actions"><button class="small-btn" onclick="openWhy('${g.id}')">WHY?</button>${locked?`<button class="small-btn locked" disabled>🔒 Locked</button>`:`<button class="small-btn bet" onclick="openBet('${g.id}')">+ Track</button>`}</div>
+      <div class="card-actions"><button class="small-btn" onclick="openWhy('${g.id}')">WHY?</button><button class="small-btn mgm" onclick="openBetMgm()">↗ BetMGM</button>${locked?`<button class="small-btn locked" disabled>🔒 Locked</button>`:`<button class="small-btn bet" onclick="openBet('${g.id}')">+ Bet Placed</button>`}</div>
     </article>`;
   }).join("");
 
@@ -866,36 +868,118 @@ function openBet(id){
   populateBetTeamOptions([{team:g.recommendedTeam,line:Number(g.marketLine),price:g.marketPrice??-110}],g.recommendedTeam);
   $("betDialogTitle").textContent=`${g.recommendedTeam} ${fmtLine(g.marketLine)}`;
   $("betContext").classList.add("hidden"); $("betContext").innerHTML="";
-  $("betUnits").value="1"; $("betNotes").value=""; $("betDialog").showModal();
+  $("betUnits").value="1"; $("betStake").value=""; $("betNotes").value=""; $("betDialog").showModal();
 }
 window.openBet=openBet;
 
-function getBets(){ try{return JSON.parse(localStorage.getItem("se-bets")||"[]");}catch{return [];} }
-function saveBets(bets){localStorage.setItem("se-bets",JSON.stringify(bets));renderBets();}
+function makeBetId(){
+  if(globalThis.crypto?.randomUUID) return crypto.randomUUID();
+  return `bet-${Date.now()}-${Math.random().toString(36).slice(2,10)}`;
+}
+function getBets(){
+  try{
+    const rows=JSON.parse(localStorage.getItem("se-bets")||"[]");
+    if(!Array.isArray(rows)) return [];
+    let changed=false;
+    rows.forEach(b=>{if(!b.id){b.id=makeBetId();changed=true;} if(!b.kind)b.kind="PREGAME"; if(!b.result)b.result="PENDING";});
+    if(changed)localStorage.setItem("se-bets",JSON.stringify(rows));
+    return rows;
+  }catch{return [];}
+}
+function saveBets(bets){
+  localStorage.setItem("se-bets",JSON.stringify(bets));
+  renderBets(); renderLiveBets(); renderBetMgmPerformance();
+}
+function betSummary(rows){
+  const graded=rows.filter(b=>["WIN","LOSS","PUSH"].includes(String(b.result||"").toUpperCase()));
+  const wins=graded.filter(b=>b.result==="WIN").length, losses=graded.filter(b=>b.result==="LOSS").length, pushes=graded.filter(b=>b.result==="PUSH").length;
+  const unitsProfit=graded.reduce((s,b)=>s+Number(b.unitsProfit||0),0);
+  const unitsRisked=graded.reduce((s,b)=>s+Number(b.units||0),0);
+  const cashRows=graded.filter(b=>Number.isFinite(Number(b.stake))&&Number(b.stake)>0&&Number.isFinite(Number(b.dollarsProfit)));
+  const dollarsProfit=cashRows.reduce((s,b)=>s+Number(b.dollarsProfit||0),0);
+  const dollarsRisked=cashRows.reduce((s,b)=>s+Number(b.stake||0),0);
+  const clvs=graded.map(b=>Number(b.clv)).filter(Number.isFinite);
+  return {graded:graded.length,wins,losses,pushes,pending:rows.length-graded.length,unitsProfit,unitsRisked,roi:unitsRisked?unitsProfit/unitsRisked*100:null,dollarsProfit,dollarsRisked,cashCount:cashRows.length,avgClv:clvs.length?clvs.reduce((a,b)=>a+b,0)/clvs.length:null};
+}
+function splitCard(label,s){
+  return `<article class="split-card actionable"><div><strong>${escapeHtml(label)}</strong><small>${s.graded} GRADED</small></div><strong>${s.wins}-${s.losses}${s.pushes?`-${s.pushes}`:""}</strong><span>${fmtUnits(s.unitsProfit)} • ROI ${fmtPct(s.roi)}${s.avgClv===null?"":` • CLV ${s.avgClv>=0?"+":""}${s.avgClv.toFixed(2)}`}</span></article>`;
+}
+function renderBetMgmPerformance(){
+  const bets=getBets(), all=betSummary(bets), pre=betSummary(bets.filter(b=>b.kind!=="LIVE")), live=betSummary(bets.filter(b=>b.kind==="LIVE"));
+  $("personalRecord").textContent=`${all.wins}-${all.losses}${all.pushes?`-${all.pushes}`:""}`;
+  $("personalRecordSub").textContent=`${all.graded} graded • ${all.pending} pending`;
+  $("personalUnits").textContent=fmtUnits(all.unitsProfit);
+  $("personalUnits").className=all.unitsProfit>0?"positive":all.unitsProfit<0?"negative":"";
+  $("personalUnitsSub").textContent=`${all.unitsRisked.toFixed(1)}u graded risk`;
+  $("personalRoi").textContent=fmtPct(all.roi);
+  $("personalRoi").className=all.roi>0?"positive":all.roi<0?"negative":"";
+  $("personalDollars").textContent=`${all.dollarsProfit<0?"-":""}$${Math.abs(all.dollarsProfit).toFixed(2)}`;
+  $("personalDollars").className=all.dollarsProfit>0?"positive":all.dollarsProfit<0?"negative":"";
+  $("personalDollarsSub").textContent=all.cashCount?`$${all.dollarsRisked.toFixed(2)} graded cash risk`:`Add stake $ to track cash P/L`;
+  $("personalSplits").innerHTML=splitCard("🏟️ Pregame",pre)+splitCard("⚡ Live Edge",live);
+  $("pendingBetCount").textContent=all.pending;
+}
+function resultPill(b){
+  const r=String(b.result||"PENDING").toUpperCase();
+  if(r==="WIN")return `<span class="result-pill win">WIN</span>`;
+  if(r==="LOSS")return `<span class="result-pill loss">LOSS</span>`;
+  if(r==="PUSH")return `<span class="result-pill push">PUSH</span>`;
+  return `<span class="result-pill pending">PENDING</span>`;
+}
 function renderBets(){
   const bets=getBets(); $("betCount").textContent=bets.length;
   $("unitsRisked").textContent=`${bets.reduce((s,b)=>s+Number(b.units||0),0).toFixed(1)}u`;
-  if(!bets.length){$("betsTableWrap").innerHTML=`<div class="empty">No bets tracked yet. Use “+ Track” on a game card.</div>`;return;}
-  $("betsTableWrap").innerHTML=`<table class="bets-table"><thead><tr><th>Date</th><th>Type</th><th>Game</th><th>Side</th><th>Line</th><th>Price</th><th>Units</th><th>Edge</th><th>MGM vs Mkt</th><th></th></tr></thead><tbody>${bets.map((b,i)=>`<tr>
-    <td>${new Date(b.createdAt).toLocaleDateString()}</td><td>${escapeHtml(b.kind||"PREGAME")}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}</td><td>${escapeHtml(b.team)}</td><td>${fmtLine(b.line)}</td><td>${fmtPrice(b.price)}</td><td>${Number(b.units).toFixed(1)}u</td><td>+${Number(b.edge).toFixed(1)}</td><td>${b.betmgmVsConsensus===null||b.betmgmVsConsensus===undefined?"—":`${Number(b.betmgmVsConsensus)>=0?"+":""}${Number(b.betmgmVsConsensus).toFixed(1)}`}</td><td><button class="small-btn" onclick="removeBet(${i})">Remove</button></td>
+  if(!bets.length){$("betsTableWrap").innerHTML=`<div class="empty">No BetMGM wagers tracked yet. Use “+ Bet Placed” on a Pregame or Live Edge card.</div>`;return;}
+  $("betsTableWrap").innerHTML=`<table class="bets-table personal-bets-table"><thead><tr><th>Date</th><th>Type</th><th>Game</th><th>Side</th><th>Line</th><th>Odds</th><th>Stake</th><th>Result</th><th>Net</th><th>Edge</th><th></th></tr></thead><tbody>${bets.map((b,i)=>`<tr>
+    <td>${new Date(b.createdAt).toLocaleDateString()}</td><td>${escapeHtml(b.kind||"PREGAME")}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}</td><td>${escapeHtml(b.team)}</td><td>${fmtLine(b.line)}</td><td>${fmtPrice(b.price)}</td><td>${Number(b.stake)>0?`$${Number(b.stake).toFixed(2)}`:"—"}</td><td>${resultPill(b)}</td><td>${["WIN","LOSS","PUSH"].includes(b.result)?`${fmtUnits(b.unitsProfit)}${Number.isFinite(Number(b.dollarsProfit))?`<br><small>${Number(b.dollarsProfit)<0?"-":""}$${Math.abs(Number(b.dollarsProfit)).toFixed(2)}</small>`:""}`:"—"}</td><td>${b.edge===null||b.edge===undefined?"—":`${Number(b.edge)>=0?"+":""}${Number(b.edge).toFixed(1)}`}</td><td><button class="small-btn" onclick="removeBet(${i})">Remove</button></td>
   </tr>`).join("")}</tbody></table>`;
 }
 function removeBet(i){const b=getBets();b.splice(i,1);saveBets(b);} window.removeBet=removeBet;
 
+async function checkBetResults(){
+  const btn=$("checkBetResultsBtn"), status=$("betCheckStatus"), bets=getBets();
+  if(!bets.length){status.textContent="No tracked bets to check.";return;}
+  btn.disabled=true; status.textContent="Checking completed games…";
+  try{
+    const payload=bets.map(b=>({id:b.id,kind:b.kind,gameId:b.gameId,cfbdGameId:b.cfbdGameId,team:b.team,line:b.line,price:b.price,units:b.units,stake:b.stake,away:b.away,home:b.home}));
+    const res=await fetch(BET_CHECK_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({bets:payload})});
+    const data=await res.json();
+    if(!res.ok)throw new Error(data?.error||`Result check failed (${res.status})`);
+    const byId=new Map((data.results||[]).map(r=>[String(r.id),r]));
+    let newly=0;
+    bets.forEach(b=>{
+      const r=byId.get(String(b.id)); if(!r||r.status!=="GRADED")return;
+      if(!["WIN","LOSS","PUSH"].includes(b.result))newly++;
+      b.result=r.result; b.atsMargin=r.atsMargin; b.unitsProfit=r.unitsProfit; b.dollarsProfit=r.dollarsProfit; b.finalScore=r.finalScore; b.closingLine=r.closingLine; b.clv=r.clv; b.gradedAt=r.gradedAt; b.gradeSource=r.source;
+    });
+    saveBets(bets);
+    status.textContent=`Checked ${data.checked||bets.length} wagers • ${data.graded||0} completed • ${data.pending||0} pending${newly?` • ${newly} newly graded`:""}.`;
+  }catch(e){status.textContent=`⚠ ${e.message||e}`;}
+  finally{btn.disabled=false;}
+}
+function exportBets(){
+  const blob=new Blob([JSON.stringify({version:"Saturday Edge BetMGM Ledger v0.1",exportedAt:new Date().toISOString(),bets:getBets()},null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=`saturday-edge-betmgm-ledger-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function importBetsFile(file){
+  const reader=new FileReader();reader.onload=()=>{try{const parsed=JSON.parse(reader.result);const incoming=Array.isArray(parsed)?parsed:parsed?.bets;if(!Array.isArray(incoming))throw new Error("No bets array found.");const current=getBets();const seen=new Set(current.map(b=>b.id));for(const row of incoming){if(!row.id)row.id=makeBetId();if(!seen.has(row.id)){current.push(row);seen.add(row.id);}}current.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));saveBets(current);$("betCheckStatus").textContent=`Imported ${incoming.length} ledger rows. Duplicate IDs were skipped.`;}catch(e){alert(`Could not import ledger: ${e.message||e}`);}};reader.readAsText(file);
+}
+function openBetMgm(){window.open(BETMGM_URL,"_blank","noopener,noreferrer");} window.openBetMgm=openBetMgm;
+
 $("betForm").addEventListener("submit",e=>{
   e.preventDefault(); if(!currentBetGame) return;
   const g=currentBetGame,bets=getBets();
-  const team=$("betTeam").value;
+  const team=$("betTeam").value, stake=$("betStake").value===""?null:Number($("betStake").value);
   if(currentBetKind==="LIVE"){
     const lm=g.liveModel||{};
     const isRec=teamNamesMatch(team,lm.recommendedTeam);
     const edge=lm.edge===null||lm.edge===undefined?null:(isRec?Number(lm.edge):-Number(lm.edge));
     const fair=lm.fairLineForRecommendedTeam===null||lm.fairLineForRecommendedTeam===undefined?null:(isRec?Number(lm.fairLineForRecommendedTeam):-Number(lm.fairLineForRecommendedTeam));
-    bets.unshift({kind:"LIVE",createdAt:new Date().toISOString(),gameId:g.gameId,cfbdGameId:g.cfbdGameId,kickoff:g.kickoff,away:g.away,home:g.home,team,line:Number($("betLine").value),price:Number($("betPrice").value),units:Number($("betUnits").value),edge,projectedLine:fair,classification:lm.signal||"TRACK_ONLY",gameState:liveGameState(g),scoreAtBet:`${g.awayScore??"—"}-${g.homeScore??"—"}`,possession:g.possession??null,pregameClose:lm.pregameCloseForRecommendedTeam??null,notes:$("betNotes").value.trim()});
+    bets.unshift({id:makeBetId(),kind:"LIVE",result:"PENDING",createdAt:new Date().toISOString(),gameId:g.gameId,cfbdGameId:g.cfbdGameId,season:g.season??null,week:g.week??null,kickoff:g.kickoff,away:g.away,home:g.home,team,line:Number($("betLine").value),price:Number($("betPrice").value),units:Number($("betUnits").value),stake,edge,projectedLine:fair,classification:lm.signal||"TRACK_ONLY",gameState:liveGameState(g),scoreAtBet:`${g.awayScore??"—"}-${g.homeScore??"—"}`,possession:g.possession??null,pregameClose:lm.pregameCloseForRecommendedTeam??null,notes:$("betNotes").value.trim()});
   }else{
-    bets.unshift({kind:"PREGAME",createdAt:new Date().toISOString(),gameId:g.id,kickoff:g.kickoff,away:g.away,home:g.home,team,line:Number($("betLine").value),price:Number($("betPrice").value),units:Number($("betUnits").value),edge:Number(g.edge),edgeScore:Number(g.edgeScore),projectedLine:Number(g.projectedLine),classification:g.classification,consensusLine:g.marketConsensus?.consensusLine??null,betmgmVsConsensus:g.marketConsensus?.betmgmVsConsensus??null,matchedSystems:g.matchedSystems||[],notes:$("betNotes").value.trim()});
+    bets.unshift({id:makeBetId(),kind:"PREGAME",result:"PENDING",createdAt:new Date().toISOString(),gameId:g.id,cfbdGameId:g.cfbdGameId??null,season:g.season??null,week:g.week??null,kickoff:g.kickoff,away:g.away,home:g.home,team,line:Number($("betLine").value),price:Number($("betPrice").value),units:Number($("betUnits").value),stake,edge:Number(g.edge),edgeScore:Number(g.edgeScore),projectedLine:Number(g.projectedLine),classification:g.classification,consensusLine:g.marketConsensus?.consensusLine??null,betmgmVsConsensus:g.marketConsensus?.betmgmVsConsensus??null,matchedSystems:g.matchedSystems||[],notes:$("betNotes").value.trim()});
   }
-  saveBets(bets); renderLiveBets(); $("betDialog").close();
+  saveBets(bets); $("betDialog").close();
 });
 
 function openSettings(){ $("modeSelect").value=settings.mode; $("endpointInput").value=settings.endpoint||""; $("liveEndpointInput").value=settings.liveEndpoint||LIVE_EDGE_ENDPOINT; $("settingsDialog").showModal(); }
@@ -955,13 +1039,19 @@ $("settingsBtn").addEventListener("click",openSettings);
 $("dialogClose").addEventListener("click",()=>$("gameDialog").close());
 $("settingsClose").addEventListener("click",()=>$("settingsDialog").close());
 $("betDialogClose").addEventListener("click",()=>$("betDialog").close());
-$("clearBetsBtn").addEventListener("click",()=>{if(confirm("Clear every wager from the local bet ledger?")){saveBets([]);renderLiveBets();}});
+$("openBetMgmBtn").addEventListener("click",openBetMgm);
+$("checkBetResultsBtn").addEventListener("click",checkBetResults);
+$("exportBetsBtn").addEventListener("click",exportBets);
+$("importBetsBtn").addEventListener("click",()=>$("importBetsFile").click());
+$("importBetsFile").addEventListener("change",e=>{const file=e.target.files?.[0];if(file)importBetsFile(file);e.target.value="";});
+$("clearBetsBtn").addEventListener("click",()=>{if(confirm("Clear every wager from the local BetMGM ledger?")){saveBets([]);}});
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=70").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=71").catch(()=>{}));}
 (async()=>{
   renderLiveBets();
+  renderBetMgmPerformance();
   await loadGames();
   await loadPerformance();
 })();
