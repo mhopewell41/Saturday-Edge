@@ -1,7 +1,7 @@
 {
   "name": "Saturday Edge",
   "short_name": "Sat Edge",
-  "description": "College football BetMGM spread, market-value, and prospective performance analyzer",
+  "description": "College football BetMGM pregame and live spread analysis with prospective research receipts",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#07100c",

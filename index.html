@@ -7,7 +7,7 @@
   <title>Saturday Edge</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=66a" />
+  <link rel="stylesheet" href="styles.css?v=70" />
 </head>
 <body>
   <div class="app-shell">
@@ -27,7 +27,7 @@
 
     <section class="hero">
       <div>
-        <div class="eyebrow">BETMGM • SPREADS • APP v0.6.6a • MODEL v0.5 • SHADOW v0.1</div>
+        <div class="eyebrow">BETMGM • SPREADS • APP v0.7.0 • MODEL v0.5 • SHADOW v0.1 • LIVE v0.1</div>
         <h2>Find the number.<br><span>Keep the receipts.</span></h2>
         <p id="statusText">Loading the live board…</p>
       </div>
@@ -38,6 +38,12 @@
       </div>
     </section>
 
+    <nav class="view-switch" aria-label="Saturday Edge view">
+      <button id="pregameViewBtn" class="view-btn active" type="button">🏟️ PREGAME</button>
+      <button id="liveViewBtn" class="view-btn live" type="button">⚡ LIVE EDGE <span id="liveNavCount">0</span></button>
+    </nav>
+
+    <div id="pregamePane">
     <section class="summary-grid">
       <article class="summary-card"><span>Games analyzed</span><strong id="gamesCount">0</strong></article>
       <article class="summary-card"><span>Pass</span><strong id="passCount">0</strong></article>
@@ -209,6 +215,55 @@
       </div>
       <div id="betsTableWrap" class="table-wrap"></div>
     </section>
+    </div>
+
+    <section id="livePane" class="live-pane hidden">
+      <section class="live-edge-section">
+        <div class="section-heading live-heading">
+          <div>
+            <div class="eyebrow">IN-GAME RESEARCH • SEPARATE LEDGER</div>
+            <h2>⚡ Live Edge v0.1</h2>
+            <p id="liveStatus">Open Live Edge to load games already in progress.</p>
+          </div>
+          <div class="live-actions">
+            <div class="evidence-badge live-badge">⚡ Research only</div>
+            <button id="liveRefreshBtn" class="btn primary" type="button">↻ Refresh live</button>
+          </div>
+        </div>
+
+        <div class="live-rule">
+          <strong>v0.1 fair line:</strong> current score margin + pregame projected margin × regulation fraction remaining.
+          <span>Possession and situation are displayed but do not change the v0.1 fair line. Live Edge is tracked separately from MODEL v0.5 and Shadow Select.</span>
+        </div>
+
+        <div class="live-summary-grid">
+          <article class="live-summary-card"><span>Games live</span><strong id="liveCount">0</strong></article>
+          <article class="live-summary-card value"><span>Live value</span><strong id="liveValueCount">0</strong></article>
+          <article class="live-summary-card watch"><span>Watch</span><strong id="liveWatchCount">0</strong></article>
+          <article class="live-summary-card"><span>Odds credits</span><strong id="liveCredits">—</strong></article>
+        </div>
+
+        <div class="live-guardrail">🧯 <strong>No-chase guardrail:</strong> a team falling far behind does not automatically become value. Late-game signals are intentionally harder to trigger.</div>
+
+        <div id="liveBoard" class="live-board"></div>
+        <div id="liveEmpty" class="empty">No FBS games are in progress right now.</div>
+      </section>
+
+      <section class="tracker-section live-tracker-section">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow">PERSONAL IN-GAME LEDGER</div>
+            <h2>My Live Bets</h2>
+          </div>
+          <span class="live-auto-note">Live feed auto-refreshes every 2 minutes while this tab is open.</span>
+        </div>
+        <div class="tracker-summary">
+          <div><span>Live bets</span><strong id="liveBetCount">0</strong></div>
+          <div><span>Units risked</span><strong id="liveUnitsRisked">0.0u</strong></div>
+        </div>
+        <div id="liveBetsTableWrap" class="table-wrap"></div>
+      </section>
+    </section>
 
     <footer>
       <p><strong>Saturday Edge is an analysis tool, not a guarantee.</strong> Model scores are not win probabilities. Bet only amounts you can afford to lose. No wager is placed automatically.</p>
@@ -239,12 +294,16 @@
         Data mode
         <select id="modeSelect">
           <option value="demo">Demo data</option>
-          <option value="live">Live Edge Function</option>
+          <option value="live">Live data</option>
         </select>
       </label>
       <label>
-        Supabase Edge Function URL
+        Pregame Edge Function URL
         <input id="endpointInput" type="url" placeholder="https://YOUR_PROJECT.supabase.co/functions/v1/saturday-edge-board" />
+      </label>
+      <label>
+        Live Edge Function URL
+        <input id="liveEndpointInput" type="url" placeholder="https://YOUR_PROJECT.supabase.co/functions/v1/saturday-edge-live" />
       </label>
       <div class="note">API keys stay in Supabase Secrets. This page stores only public Edge Function URLs.</div>
       <button id="saveSettingsBtn" class="btn primary full">Save settings</button>
@@ -261,6 +320,8 @@
     </div>
     <form id="betForm" class="settings-body">
       <input type="hidden" id="betGameId" />
+      <div id="betContext" class="bet-context hidden"></div>
+      <label>Bet side<select id="betTeam" required></select></label>
       <label>Units risked<input id="betUnits" type="number" min="0.1" step="0.1" value="1" required /></label>
       <label>BetMGM line<input id="betLine" type="number" step="0.5" required /></label>
       <label>Price<input id="betPrice" type="number" step="1" value="-110" required /></label>
@@ -269,6 +330,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=66a"></script>
+  <script src="app.js?v=70"></script>
 </body>
 </html>

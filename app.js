@@ -1,6 +1,8 @@
 const LIVE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-board";
 const PERFORMANCE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-performance";
-const SETTINGS_VERSION = 10;
+const LIVE_EDGE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-live";
+const SETTINGS_VERSION = 11;
+const LIVE_AUTO_REFRESH_MS = 2 * 60 * 1000;
 
 const DEMO_GAMES = [
   {
@@ -18,7 +20,7 @@ const DEMO_GAMES = [
   }
 ];
 
-const defaultSettings = { version:SETTINGS_VERSION, mode:"live", endpoint:LIVE_ENDPOINT };
+const defaultSettings = { version:SETTINGS_VERSION, mode:"live", endpoint:LIVE_ENDPOINT, liveEndpoint:LIVE_EDGE_ENDPOINT };
 
 function loadSettings(){
   try{
@@ -37,8 +39,15 @@ let currentFilter = "ALL";
 let currentTimeFilter = "ALL";
 let currentShadowFilter = "ALL";
 let currentBetGame = null;
+let currentBetKind = "PREGAME";
 let lastPayload = null;
 let performance = null;
+let activeView = "pregame";
+let liveGames = [];
+let livePayload = null;
+let liveAutoTimer = null;
+let pregameStatusText = "";
+let liveStatusText = "Live Edge is ready.";
 
 const $ = id => document.getElementById(id);
 const fmtLine = n => n === null || n === undefined || !Number.isFinite(Number(n)) ? "—" : `${Number(n)>0?"+":""}${Number(n).toFixed(1)}`;
@@ -203,6 +212,224 @@ function readLiveCache(){
 }
 function writeLiveCache(payload){ try{localStorage.setItem(LIVE_CACHE_KEY,JSON.stringify({savedAt:Date.now(),payload}));}catch{} }
 
+
+function liveSignalMeta(signal){
+  return ({
+    LIVE_VALUE:["⚡ LIVE VALUE","value"],
+    WATCH:["👀 WATCH","watch"],
+    NO_PLAY:["🧊 NO PLAY","no-play"],
+    STALE_MARKET:["⌛ STALE MARKET","stale"],
+    TRACK_ONLY:["📍 TRACK ONLY","track"]
+  })[signal] || ["📍 TRACK ONLY","track"];
+}
+
+function liveGameState(g){
+  const p=Number(g?.period);
+  const clock=g?.clock?String(g.clock):"";
+  if(Number.isFinite(p)&&p>4) return `OT${p>5?` ${p-4}`:""}${clock?` • ${clock}`:""}`;
+  if(Number.isFinite(p)&&p>0) return `Q${p}${clock?` • ${clock}`:""}`;
+  return g?.status==="in_progress"?"LIVE":"—";
+}
+
+function lineFromHistoryForSide(row,g){
+  if(!row) return null;
+  if(teamNamesMatch(g?.liveModel?.recommendedTeam,g?.home)) return Number.isFinite(Number(row.betmgm_home_line))?Number(row.betmgm_home_line):null;
+  if(teamNamesMatch(g?.liveModel?.recommendedTeam,g?.away)) return Number.isFinite(Number(row.betmgm_away_line))?Number(row.betmgm_away_line):null;
+  return Number.isFinite(Number(row.recommended_line))?Number(row.recommended_line):null;
+}
+
+function teamNamesMatch(a,b){
+  const clean=v=>String(v??"").toLowerCase().replace(/[^a-z0-9]/g,"");
+  const x=clean(a),y=clean(b);
+  return Boolean(x&&y&&(x===y||x.includes(y)||y.includes(x)));
+}
+
+function liveHistoryHtml(g){
+  const rows=Array.isArray(g?.history)?g.history.slice(0,6).reverse():[];
+  if(!rows.length) return `<span class="live-history-empty">First live snapshot</span>`;
+  return rows.map(row=>{
+    const line=lineFromHistoryForSide(row,g);
+    const state=`${row.period?`Q${row.period} `:""}${row.clock||""}`.trim()||new Date(row.captured_at).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
+    return `<span class="live-history-point"><small>${escapeHtml(state)}</small><b>${fmtLine(line)}</b></span>`;
+  }).join("");
+}
+
+async function loadLiveGames(){
+  if(settings.mode!=="live"){
+    liveGames=[]; livePayload=null;
+    liveStatusText="Live Edge requires live data mode.";
+    $("liveStatus").textContent=liveStatusText;
+    renderLive();
+    return;
+  }
+  const btn=$("liveRefreshBtn"); if(btn) btn.disabled=true;
+  $("liveStatus").textContent="Loading games already in progress…";
+  try{
+    if(!settings.liveEndpoint) throw new Error("Add the Live Edge Function URL in Settings.");
+    const r=await fetch(settings.liveEndpoint,{headers:{Accept:"application/json"},cache:"no-store"});
+    const payload=await r.json().catch(()=>({}));
+    if(!r.ok||payload.error) throw new Error(payload.error||`Live Edge request failed (${r.status}).`);
+    livePayload=payload;
+    liveGames=Array.isArray(payload.games)?payload.games:[];
+    const cache=payload.cache||{};
+    const cacheText=cache.cached?` • ${cache.stale?"stale fallback":"cached"} ${Number(cache.ageSeconds||0)}s`:` • fresh pull`;
+    const credits=payload.oddsApiUsage?.remaining;
+    const creditText=credits!==null&&credits!==undefined?` • ${credits} odds credits left`:"";
+    liveStatusText=`${payload.version||"Live Edge"} • ${liveGames.length} in progress${cacheText}${creditText}`;
+    if(payload.warning) liveStatusText=`⚠ ${payload.warning}`;
+    $("liveStatus").textContent=liveStatusText;
+    if(activeView==="live") $("statusText").textContent=liveStatusText;
+  }catch(err){
+    console.error(err);
+    liveStatusText=`Live Edge unavailable: ${err.message}`;
+    $("liveStatus").textContent=liveStatusText;
+    if(activeView==="live") $("statusText").textContent=liveStatusText;
+  }finally{
+    if(btn) btn.disabled=false;
+    renderLive();
+  }
+}
+
+function renderLive(){
+  const counts=livePayload?.counts||{};
+  $("liveCount").textContent=Number(counts.live??liveGames.length);
+  $("liveValueCount").textContent=Number(counts.liveValue??liveGames.filter(g=>g.liveModel?.signal==="LIVE_VALUE").length);
+  $("liveWatchCount").textContent=Number(counts.watch??liveGames.filter(g=>g.liveModel?.signal==="WATCH").length);
+  const credits=livePayload?.oddsApiUsage?.remaining;
+  $("liveCredits").textContent=credits===null||credits===undefined?"—":String(credits);
+  $("liveNavCount").textContent=liveGames.length;
+  const board=$("liveBoard");
+  if(!liveGames.length){
+    board.innerHTML="";
+    $("liveEmpty").classList.remove("hidden");
+    renderLiveBets();
+    return;
+  }
+  $("liveEmpty").classList.add("hidden");
+  board.innerHTML=liveGames.map(g=>{
+    const lm=g.liveModel||{};
+    const betmgm=g.betmgm||{};
+    const meta=liveSignalMeta(lm.signal);
+    const score=`${g.awayScore??"—"}–${g.homeScore??"—"}`;
+    const rec=lm.recommendedTeam||"Tracking only";
+    const pos=g.possession?` • Poss: ${escapeHtml(g.possession)}`:"";
+    const situation=g.situation?` • ${escapeHtml(g.situation)}`:"";
+    const lastPlay=g.lastPlay?`<div class="live-last-play">${escapeHtml(g.lastPlay)}</div>`:"";
+    const movement=lm.movementFromPregameClose;
+    const movementText=movement===null||movement===undefined?"—":`${Number(movement)>=0?"+":""}${Number(movement).toFixed(1)} pts`;
+    const canTrack=betmgm.available&&Number.isFinite(Number(lm.recommendedLine));
+    const cautions=Array.isArray(lm.cautions)&&lm.cautions.length?`<div class="live-cautions">${lm.cautions.map(c=>`<span>⚠ ${escapeHtml(c)}</span>`).join("")}</div>`:"";
+    return `<article class="live-game-card ${meta[1]}">
+      <div class="live-score-row">
+        <div><strong>${escapeHtml(g.away)}</strong><b>${g.awayScore??"—"}</b></div>
+        <div class="live-center-state"><span class="live-dot">● LIVE</span><strong>${escapeHtml(liveGameState(g))}</strong><small>${escapeHtml(g.possession?`Possession: ${g.possession}`:g.status||"")}</small></div>
+        <div><strong>${escapeHtml(g.home)}</strong><b>${g.homeScore??"—"}</b></div>
+      </div>
+      <div class="live-matchup-title">${escapeHtml(g.away)} @ ${escapeHtml(g.home)} <span>${score}${pos}${situation}</span></div>
+      ${lastPlay}
+      <div class="live-metrics">
+        <div><span>Live side</span><strong>${escapeHtml(rec)}</strong></div>
+        <div><span>BetMGM live</span><strong>${fmtLine(lm.recommendedLine)}</strong><small>${lm.recommendedPrice===null||lm.recommendedPrice===undefined?"":fmtPrice(lm.recommendedPrice)}</small></div>
+        <div><span>Live fair line</span><strong>${fmtLine(lm.fairLineForRecommendedTeam)}</strong></div>
+        <div><span>Live edge</span><strong class="${Number(lm.edge||0)>=4?"positive":""}">${lm.edge===null||lm.edge===undefined?"—":`+${Number(lm.edge).toFixed(1)}`}</strong></div>
+        <div><span>Pregame close</span><strong>${fmtLine(lm.pregameCloseForRecommendedTeam)}</strong></div>
+        <div><span>Move vs close</span><strong>${movementText}</strong></div>
+      </div>
+      <div class="live-signal-row"><span class="live-signal ${meta[1]}">${meta[0]}</span><span>Research-only v0.1 • remaining game ${(Number(lm.remainingFraction||0)*100).toFixed(0)}%</span></div>
+      <div class="live-history"><label>BetMGM live-line trail</label><div>${liveHistoryHtml(g)}</div></div>
+      ${cautions}
+      <div class="card-actions live-card-actions"><button class="small-btn" onclick="openLiveWhy('${escapeHtml(g.gameId)}')">DETAILS</button>${canTrack?`<button class="small-btn bet" onclick="openLiveBet('${escapeHtml(g.gameId)}')">+ Track Live Bet</button>`:`<button class="small-btn locked" disabled>Line unavailable</button>`}</div>
+    </article>`;
+  }).join("");
+  renderLiveBets();
+}
+
+function openLiveWhy(id){
+  const g=liveGames.find(x=>String(x.gameId)===String(id)); if(!g) return;
+  const lm=g.liveModel||{}, b=g.betmgm||{}, p=g.pregame||{};
+  $("dialogTitle").textContent=`LIVE: ${g.away} @ ${g.home}`;
+  $("dialogBody").innerHTML=`<div class="why-grid">
+    <div class="why-stat"><span>Score</span><strong>${g.awayScore??"—"}–${g.homeScore??"—"}</strong></div>
+    <div class="why-stat"><span>Game state</span><strong>${escapeHtml(liveGameState(g))}</strong></div>
+    <div class="why-stat"><span>Possession</span><strong>${escapeHtml(g.possession||"—")}</strong></div>
+    <div class="why-stat"><span>Live side</span><strong>${escapeHtml(lm.recommendedTeam||"Tracking only")}</strong></div>
+    <div class="why-stat"><span>BetMGM live line</span><strong>${fmtLine(lm.recommendedLine)}</strong></div>
+    <div class="why-stat"><span>Live fair line</span><strong>${fmtLine(lm.fairLineForRecommendedTeam)}</strong></div>
+    <div class="why-stat"><span>Live edge</span><strong>${lm.edge===null||lm.edge===undefined?"—":`+${Number(lm.edge).toFixed(1)}`}</strong></div>
+    <div class="why-stat"><span>Pregame close</span><strong>${fmtLine(lm.pregameCloseForRecommendedTeam)}</strong></div>
+    <div class="why-stat"><span>Pregame model</span><strong>${fmtLine(lm.pregameModelForRecommendedTeam)}</strong></div>
+  </div>
+  <div class="diagnostic-explain"><strong>⚡ Live Edge v0.1</strong><span>${escapeHtml(lm.methodology||"Current score plus remaining share of the pregame model margin.")}</span><span class="diag-caution">Possession is context only in v0.1. This live signal is research-only and does not alter MODEL v0.5 or Shadow Select.</span></div>
+  ${g.lastPlay?`<div class="reason info"><strong>Last play:</strong> ${escapeHtml(g.lastPlay)}</div>`:""}
+  ${(lm.cautions||[]).map(c=>`<div class="reason caution">${escapeHtml(c)}</div>`).join("")}`;
+  $("gameDialog").showModal();
+}
+window.openLiveWhy=openLiveWhy;
+
+function populateBetTeamOptions(options,preferred){
+  const select=$("betTeam");
+  select.innerHTML=options.map(o=>`<option value="${escapeHtml(o.team)}" data-line="${o.line}" data-price="${o.price??-110}">${escapeHtml(o.team)}</option>`).join("");
+  if(preferred&&options.some(o=>o.team===preferred)) select.value=preferred;
+  const sync=()=>{
+    const opt=select.selectedOptions[0]; if(!opt) return;
+    $("betLine").value=Number(opt.dataset.line).toFixed(1);
+    $("betPrice").value=Number(opt.dataset.price||-110);
+  };
+  select.onchange=sync; sync();
+}
+
+function openLiveBet(id){
+  const g=liveGames.find(x=>String(x.gameId)===String(id)); if(!g||!g.betmgm?.available) return;
+  currentBetGame=g; currentBetKind="LIVE"; $("betGameId").value=g.gameId;
+  const options=[
+    {team:g.home,line:Number(g.betmgm.homeLine),price:g.betmgm.homePrice??-110},
+    {team:g.away,line:Number(g.betmgm.awayLine),price:g.betmgm.awayPrice??-110}
+  ].filter(o=>Number.isFinite(o.line));
+  populateBetTeamOptions(options,g.liveModel?.recommendedTeam);
+  $("betDialogTitle").textContent=`Live bet • ${g.away} @ ${g.home}`;
+  $("betContext").classList.remove("hidden");
+  $("betContext").innerHTML=`<strong>${escapeHtml(liveGameState(g))}</strong> • Score ${g.awayScore??"—"}–${g.homeScore??"—"} • Live Edge signal ${escapeHtml(g.liveModel?.signalLabel||g.liveModel?.signal||"TRACK ONLY")}`;
+  $("betUnits").value="1"; $("betNotes").value=""; $("betDialog").showModal();
+}
+window.openLiveBet=openLiveBet;
+
+function renderLiveBets(){
+  const all=getBets().map((b,i)=>({b,i}));
+  const rows=all.filter(x=>x.b.kind==="LIVE");
+  $("liveBetCount").textContent=rows.length;
+  $("liveUnitsRisked").textContent=`${rows.reduce((s,x)=>s+Number(x.b.units||0),0).toFixed(1)}u`;
+  if(!rows.length){$("liveBetsTableWrap").innerHTML=`<div class="empty">No in-game bets tracked yet. Use “+ Track Live Bet” on a live card.</div>`;return;}
+  $("liveBetsTableWrap").innerHTML=`<table class="bets-table"><thead><tr><th>Time</th><th>Game</th><th>State</th><th>Side</th><th>Line</th><th>Price</th><th>Units</th><th>Live edge</th><th></th></tr></thead><tbody>${rows.map(({b,i})=>`<tr>
+    <td>${new Date(b.createdAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}</td><td>${escapeHtml(b.gameState||"LIVE")}<br><small>${escapeHtml(b.scoreAtBet||"")}</small></td><td>${escapeHtml(b.team)}</td><td>${fmtLine(b.line)}</td><td>${fmtPrice(b.price)}</td><td>${Number(b.units).toFixed(1)}u</td><td>${b.edge===null||b.edge===undefined?"—":`${Number(b.edge)>=0?"+":""}${Number(b.edge).toFixed(1)}`}</td><td><button class="small-btn" onclick="removeBet(${i})">Remove</button></td>
+  </tr>`).join("")}</tbody></table>`;
+}
+
+function stopLiveAutoRefresh(){ if(liveAutoTimer){clearInterval(liveAutoTimer);liveAutoTimer=null;} }
+function startLiveAutoRefresh(){
+  stopLiveAutoRefresh();
+  liveAutoTimer=setInterval(()=>{ if(activeView==="live") loadLiveGames(); },LIVE_AUTO_REFRESH_MS);
+}
+
+async function switchView(view){
+  if(view===activeView) return;
+  if(activeView==="pregame") pregameStatusText=$("statusText").textContent;
+  activeView=view;
+  $("pregamePane").classList.toggle("hidden",view!=="pregame");
+  $("livePane").classList.toggle("hidden",view!=="live");
+  $("pregameViewBtn").classList.toggle("active",view==="pregame");
+  $("liveViewBtn").classList.toggle("active",view==="live");
+  if(view==="live"){
+    $("refreshBtn").textContent="↻ Refresh Live";
+    $("statusText").textContent=liveStatusText;
+    if(!livePayload) await loadLiveGames();
+    startLiveAutoRefresh();
+  }else{
+    stopLiveAutoRefresh();
+    $("refreshBtn").textContent="↻ Refresh";
+    $("statusText").textContent=pregameStatusText||`Pregame board • ${games.length} games`;
+  }
+}
+
 async function loadGames(){
   $("refreshBtn").disabled=true;
   $("statusText").textContent=settings.mode==="live"?"Loading BetMGM spread board…":"Demo mode is active.";
@@ -263,6 +490,7 @@ async function loadGames(){
     lastPayload=null;
     $("statusText").textContent=`${err.message} No prior live board was available, so demo data is shown.`;
   }finally{
+    if(activeView==="pregame") pregameStatusText=$("statusText").textContent;
     $("refreshBtn").disabled=false;
     renderCoverage();
     renderShadowPerformance();
@@ -631,12 +859,13 @@ window.openWhy=openWhy;
 function openBet(id){
   const g=games.find(x=>x.id===id); if(!g) return;
   if(isPregameLocked(g)){
-    alert("This game has started or is inside the 5-minute pregame safety buffer. Saturday Edge will not track a new wager from this card.");
+    alert("This game has started or is inside the 5-minute pregame safety buffer. Use the LIVE EDGE tab for in-game tracking.");
     return;
   }
-  currentBetGame=g; $("betGameId").value=g.id;
+  currentBetGame=g; currentBetKind="PREGAME"; $("betGameId").value=g.id;
+  populateBetTeamOptions([{team:g.recommendedTeam,line:Number(g.marketLine),price:g.marketPrice??-110}],g.recommendedTeam);
   $("betDialogTitle").textContent=`${g.recommendedTeam} ${fmtLine(g.marketLine)}`;
-  $("betLine").value=Number(g.marketLine).toFixed(1); $("betPrice").value=g.marketPrice??-110;
+  $("betContext").classList.add("hidden"); $("betContext").innerHTML="";
   $("betUnits").value="1"; $("betNotes").value=""; $("betDialog").showModal();
 }
 window.openBet=openBet;
@@ -647,8 +876,8 @@ function renderBets(){
   const bets=getBets(); $("betCount").textContent=bets.length;
   $("unitsRisked").textContent=`${bets.reduce((s,b)=>s+Number(b.units||0),0).toFixed(1)}u`;
   if(!bets.length){$("betsTableWrap").innerHTML=`<div class="empty">No bets tracked yet. Use “+ Track” on a game card.</div>`;return;}
-  $("betsTableWrap").innerHTML=`<table class="bets-table"><thead><tr><th>Date</th><th>Game</th><th>Side</th><th>Line</th><th>Price</th><th>Units</th><th>Edge</th><th>MGM vs Mkt</th><th></th></tr></thead><tbody>${bets.map((b,i)=>`<tr>
-    <td>${new Date(b.createdAt).toLocaleDateString()}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}</td><td>${escapeHtml(b.team)}</td><td>${fmtLine(b.line)}</td><td>${fmtPrice(b.price)}</td><td>${Number(b.units).toFixed(1)}u</td><td>+${Number(b.edge).toFixed(1)}</td><td>${b.betmgmVsConsensus===null||b.betmgmVsConsensus===undefined?"—":`${Number(b.betmgmVsConsensus)>=0?"+":""}${Number(b.betmgmVsConsensus).toFixed(1)}`}</td><td><button class="small-btn" onclick="removeBet(${i})">Remove</button></td>
+  $("betsTableWrap").innerHTML=`<table class="bets-table"><thead><tr><th>Date</th><th>Type</th><th>Game</th><th>Side</th><th>Line</th><th>Price</th><th>Units</th><th>Edge</th><th>MGM vs Mkt</th><th></th></tr></thead><tbody>${bets.map((b,i)=>`<tr>
+    <td>${new Date(b.createdAt).toLocaleDateString()}</td><td>${escapeHtml(b.kind||"PREGAME")}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}</td><td>${escapeHtml(b.team)}</td><td>${fmtLine(b.line)}</td><td>${fmtPrice(b.price)}</td><td>${Number(b.units).toFixed(1)}u</td><td>+${Number(b.edge).toFixed(1)}</td><td>${b.betmgmVsConsensus===null||b.betmgmVsConsensus===undefined?"—":`${Number(b.betmgmVsConsensus)>=0?"+":""}${Number(b.betmgmVsConsensus).toFixed(1)}`}</td><td><button class="small-btn" onclick="removeBet(${i})">Remove</button></td>
   </tr>`).join("")}</tbody></table>`;
 }
 function removeBet(i){const b=getBets();b.splice(i,1);saveBets(b);} window.removeBet=removeBet;
@@ -656,16 +885,26 @@ function removeBet(i){const b=getBets();b.splice(i,1);saveBets(b);} window.remov
 $("betForm").addEventListener("submit",e=>{
   e.preventDefault(); if(!currentBetGame) return;
   const g=currentBetGame,bets=getBets();
-  bets.unshift({createdAt:new Date().toISOString(),gameId:g.id,kickoff:g.kickoff,away:g.away,home:g.home,team:g.recommendedTeam,line:Number($("betLine").value),price:Number($("betPrice").value),units:Number($("betUnits").value),edge:Number(g.edge),edgeScore:Number(g.edgeScore),projectedLine:Number(g.projectedLine),classification:g.classification,consensusLine:g.marketConsensus?.consensusLine??null,betmgmVsConsensus:g.marketConsensus?.betmgmVsConsensus??null,matchedSystems:g.matchedSystems||[],notes:$("betNotes").value.trim()});
-  saveBets(bets); $("betDialog").close();
+  const team=$("betTeam").value;
+  if(currentBetKind==="LIVE"){
+    const lm=g.liveModel||{};
+    const isRec=teamNamesMatch(team,lm.recommendedTeam);
+    const edge=lm.edge===null||lm.edge===undefined?null:(isRec?Number(lm.edge):-Number(lm.edge));
+    const fair=lm.fairLineForRecommendedTeam===null||lm.fairLineForRecommendedTeam===undefined?null:(isRec?Number(lm.fairLineForRecommendedTeam):-Number(lm.fairLineForRecommendedTeam));
+    bets.unshift({kind:"LIVE",createdAt:new Date().toISOString(),gameId:g.gameId,cfbdGameId:g.cfbdGameId,kickoff:g.kickoff,away:g.away,home:g.home,team,line:Number($("betLine").value),price:Number($("betPrice").value),units:Number($("betUnits").value),edge,projectedLine:fair,classification:lm.signal||"TRACK_ONLY",gameState:liveGameState(g),scoreAtBet:`${g.awayScore??"—"}-${g.homeScore??"—"}`,possession:g.possession??null,pregameClose:lm.pregameCloseForRecommendedTeam??null,notes:$("betNotes").value.trim()});
+  }else{
+    bets.unshift({kind:"PREGAME",createdAt:new Date().toISOString(),gameId:g.id,kickoff:g.kickoff,away:g.away,home:g.home,team,line:Number($("betLine").value),price:Number($("betPrice").value),units:Number($("betUnits").value),edge:Number(g.edge),edgeScore:Number(g.edgeScore),projectedLine:Number(g.projectedLine),classification:g.classification,consensusLine:g.marketConsensus?.consensusLine??null,betmgmVsConsensus:g.marketConsensus?.betmgmVsConsensus??null,matchedSystems:g.matchedSystems||[],notes:$("betNotes").value.trim()});
+  }
+  saveBets(bets); renderLiveBets(); $("betDialog").close();
 });
 
-function openSettings(){ $("modeSelect").value=settings.mode; $("endpointInput").value=settings.endpoint||""; $("settingsDialog").showModal(); }
+function openSettings(){ $("modeSelect").value=settings.mode; $("endpointInput").value=settings.endpoint||""; $("liveEndpointInput").value=settings.liveEndpoint||LIVE_EDGE_ENDPOINT; $("settingsDialog").showModal(); }
 $("saveSettingsBtn").addEventListener("click",async()=>{
-  settings={version:SETTINGS_VERSION,mode:$("modeSelect").value,endpoint:$("endpointInput").value.trim()};
+  settings={version:SETTINGS_VERSION,mode:$("modeSelect").value,endpoint:$("endpointInput").value.trim(),liveEndpoint:$("liveEndpointInput").value.trim()||LIVE_EDGE_ENDPOINT};
   localStorage.setItem("se-settings",JSON.stringify(settings)); $("settingsDialog").close();
   await loadGames();
   await loadPerformance();
+  if(activeView==="live") await loadLiveGames();
 });
 $("tabs").addEventListener("click",e=>{
   const btn=e.target.closest(".tab");
@@ -702,19 +941,27 @@ $("timeTabs").addEventListener("click",e=>{
 
 $("sortSelect").addEventListener("change",render);
 $("refreshBtn").addEventListener("click",async()=>{
-  await loadGames();
-  await loadPerformance();
+  if(activeView==="live"){
+    await loadLiveGames();
+  }else{
+    await loadGames();
+    await loadPerformance();
+  }
 });
+$("liveRefreshBtn").addEventListener("click",loadLiveGames);
+$("pregameViewBtn").addEventListener("click",()=>switchView("pregame"));
+$("liveViewBtn").addEventListener("click",()=>switchView("live"));
 $("settingsBtn").addEventListener("click",openSettings);
 $("dialogClose").addEventListener("click",()=>$("gameDialog").close());
 $("settingsClose").addEventListener("click",()=>$("settingsDialog").close());
 $("betDialogClose").addEventListener("click",()=>$("betDialog").close());
-$("clearBetsBtn").addEventListener("click",()=>{if(confirm("Clear every wager from the local bet ledger?"))saveBets([]);});
+$("clearBetsBtn").addEventListener("click",()=>{if(confirm("Clear every wager from the local bet ledger?")){saveBets([]);renderLiveBets();}});
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=66").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=70").catch(()=>{}));}
 (async()=>{
+  renderLiveBets();
   await loadGames();
   await loadPerformance();
 })();
