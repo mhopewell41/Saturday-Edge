@@ -7,7 +7,7 @@
   <title>Saturday Edge</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=71b" />
+  <link rel="stylesheet" href="styles.css?v=72" />
 </head>
 <body>
   <div class="app-shell">
@@ -27,7 +27,7 @@
 
     <section class="hero">
       <div>
-        <div class="eyebrow">BETMGM • SPREADS • APP v0.7.1b • MODEL v0.5 • SHADOW v0.1 • LIVE v0.1 • MGM LEDGER v0.1</div>
+        <div class="eyebrow">BETMGM • SPREADS • APP v0.7.2 • MODEL v0.5 • SHADOW v0.1 • LIVE v0.1 • MGM LEDGER v0.2</div>
         <h2>Find the number.<br><span>Keep the receipts.</span></h2>
         <p id="statusText">Loading the live board…</p>
       </div>
@@ -210,6 +210,7 @@
         </div>
         <div class="ledger-actions">
           <button id="openBetMgmBtn" class="btn primary" type="button">↗ Open BetMGM</button>
+          <button id="manualBetBtn" class="btn ghost manual-bet-btn" type="button">＋ Manual Bet</button>
           <button id="checkBetResultsBtn" class="btn ghost" type="button">✓ Check Results</button>
           <button id="exportBetsBtn" class="btn ghost" type="button">Export</button>
           <button id="importBetsBtn" class="btn ghost" type="button">Import</button>
@@ -330,6 +331,47 @@
     </div>
   </dialog>
 
+  <dialog id="manualBetDialog">
+    <div class="dialog-head">
+      <div>
+        <div class="eyebrow">MISSED A TAP? ADD THE RECEIPT</div>
+        <h2>＋ Manual Bet</h2>
+      </div>
+      <button id="manualBetClose" class="icon-btn">✕</button>
+    </div>
+    <form id="manualBetForm" class="settings-body manual-bet-form">
+      <div class="manual-bet-note">Enter the ticket exactly as BetMGM gave it to you. Edge will grade the spread automatically after the game is final.</div>
+      <label>Bet type
+        <select id="manualBetKind" required>
+          <option value="PREGAME">Pregame</option>
+          <option value="LIVE">Live / In-game</option>
+        </select>
+      </label>
+      <div class="manual-two-col">
+        <label>Away team<input id="manualAway" type="text" maxlength="80" placeholder="e.g. Tennessee Volunteers" required /></label>
+        <label>Home team<input id="manualHome" type="text" maxlength="80" placeholder="e.g. Alabama Crimson Tide" required /></label>
+      </div>
+      <label>Your bet side<input id="manualTeam" type="text" maxlength="80" placeholder="Team you bet" required /></label>
+      <div class="manual-two-col">
+        <label>BetMGM line<input id="manualLine" type="number" step="0.5" placeholder="e.g. +7.5" required /></label>
+        <label>Price<input id="manualPrice" type="number" step="1" value="-110" required /></label>
+      </div>
+      <div class="manual-two-col">
+        <label>Units risked<input id="manualUnits" type="number" min="0.1" step="0.1" value="1" required /></label>
+        <label>Stake $<input id="manualStake" type="number" min="0" step="0.01" placeholder="Optional, e.g. 25.00" /></label>
+      </div>
+      <label>Game date / kickoff<input id="manualKickoff" type="datetime-local" required /></label>
+      <div id="manualLiveFields" class="manual-live-fields hidden">
+        <div class="manual-two-col">
+          <label>Score when bet placed<input id="manualScoreAtBet" type="text" maxlength="30" placeholder="e.g. TEN 10 - ALA 14" /></label>
+          <label>Game state<input id="manualGameState" type="text" maxlength="40" placeholder="e.g. Q2 6:42" /></label>
+        </div>
+      </div>
+      <label>Notes<input id="manualNotes" type="text" maxlength="160" placeholder="Optional ticket note" /></label>
+      <button class="btn primary full" type="submit">Add Manual Bet</button>
+    </form>
+  </dialog>
+
   <dialog id="betDialog">
     <div class="dialog-head">
       <div>
@@ -351,6 +393,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=71b"></script>
+  <script src="app.js?v=72"></script>
 </body>
 </html>
