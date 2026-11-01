@@ -150,3 +150,7 @@ dialog{width:min(720px,calc(100vw - 28px));border:1px solid #365344;background:#
 .small-btn.danger{color:#ffaaaa;border-color:#674040;background:rgba(255,107,107,.05)}
 .small-btn.danger:hover{background:rgba(255,107,107,.12)}
 @media(max-width:620px){.bet-row-actions{flex-direction:column;align-items:stretch}.bet-row-actions .small-btn{width:100%}}
+
+
+/* v0.8.0 private cloud ledger */
+.cloud-ledger-panel{margin:16px 0 4px;padding:14px 16px;border:1px solid #355d70;border-radius:15px;background:linear-gradient(135deg,rgba(70,140,190,.08),rgba(8,24,16,.45));display:flex;align-items:center;justify-content:space-between;gap:16px}.cloud-ledger-panel>div:first-child{display:grid;gap:4px}.cloud-ledger-panel strong{font-size:15px;color:#ccecff}.cloud-ledger-panel span{color:var(--muted);font-size:10px;line-height:1.45}.cloud-ledger-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.cloud-auth-buttons{display:grid;grid-template-columns:1fr 1fr;gap:10px}.settings-divider{margin:7px 0 -2px;padding-top:13px;border-top:1px solid var(--line);color:#bfe7ff;font-size:10px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}@media(max-width:720px){.cloud-ledger-panel{align-items:flex-start;flex-direction:column}.cloud-ledger-actions{width:100%;justify-content:flex-start}.cloud-ledger-actions .btn{flex:1}.cloud-auth-buttons{grid-template-columns:1fr}}

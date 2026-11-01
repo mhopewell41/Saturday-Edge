@@ -3,8 +3,10 @@ const PERFORMANCE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions
 const LIVE_EDGE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/Saturday-edge-live";
 const BET_CHECK_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/Saturday-edge-bet-check";
 const BETMGM_URL = "https://sports.betmgm.com/";
-const SETTINGS_VERSION = 14;
+const SETTINGS_VERSION = 15;
 const LIVE_AUTO_REFRESH_MS = 2 * 60 * 1000;
+const DEFAULT_SUPABASE_URL = "https://ahskdtpxsjqasbpbvxja.supabase.co";
+const CLOUD_TABLE = "se_user_bets";
 
 const DEMO_GAMES = [
   {
@@ -22,14 +24,15 @@ const DEMO_GAMES = [
   }
 ];
 
-const defaultSettings = { version:SETTINGS_VERSION, mode:"live", endpoint:LIVE_ENDPOINT, liveEndpoint:LIVE_EDGE_ENDPOINT };
+const defaultSettings = { version:SETTINGS_VERSION, mode:"live", endpoint:LIVE_ENDPOINT, liveEndpoint:LIVE_EDGE_ENDPOINT, supabaseUrl:DEFAULT_SUPABASE_URL, supabaseKey:"" };
 
 function loadSettings(){
   try{
     const saved = JSON.parse(localStorage.getItem("se-settings") || "{}");
     if(saved.version !== SETTINGS_VERSION){
-      localStorage.setItem("se-settings", JSON.stringify(defaultSettings));
-      return {...defaultSettings};
+      const upgraded={...defaultSettings,...saved,version:SETTINGS_VERSION};
+      localStorage.setItem("se-settings", JSON.stringify(upgraded));
+      return upgraded;
     }
     return {...defaultSettings, ...saved};
   }catch{ return {...defaultSettings}; }
@@ -51,6 +54,12 @@ let livePayload = null;
 let liveAutoTimer = null;
 let pregameStatusText = "";
 let liveStatusText = "Live Edge is ready.";
+let cloudClient = null;
+let cloudSession = null;
+let cloudUser = null;
+let cloudSyncBusy = false;
+let cloudPushTimer = null;
+let cloudLastSyncAt = null;
 
 const $ = id => document.getElementById(id);
 const fmtLine = n => n === null || n === undefined || !Number.isFinite(Number(n)) ? "—" : `${Number(n)>0?"+":""}${Number(n).toFixed(1)}`;
@@ -902,6 +911,111 @@ function syncManualBetKind(){
 }
 window.openManualBet=openManualBet;
 
+
+function cloudConfigured(){
+  return Boolean(settings.supabaseUrl && settings.supabaseKey && globalThis.supabase?.createClient);
+}
+function betModifiedAt(b){
+  const candidates=[b?.updatedAt,b?.editedAt,b?.gradedAt,b?.createdAt].map(v=>new Date(v||0).getTime()).filter(Number.isFinite);
+  return candidates.length?Math.max(...candidates):0;
+}
+function cloudRowToBet(row){
+  const payload=row?.payload && typeof row.payload==="object" ? {...row.payload} : {};
+  return {...payload,id:payload.id||row.bet_id,kind:payload.kind||row.kind||"PREGAME",result:payload.result||row.result||"PENDING",kickoff:payload.kickoff||row.kickoff,away:payload.away||row.away,home:payload.home||row.home,team:payload.team||row.team,line:payload.line??row.line,price:payload.price??row.price,units:payload.units??row.units,stake:payload.stake??row.stake,cloudUpdatedAt:row.updated_at};
+}
+function betToCloudRow(b){
+  return {user_id:cloudUser.id,bet_id:String(b.id),kind:b.kind||"PREGAME",result:b.result||"PENDING",kickoff:b.kickoff||null,away:b.away||null,home:b.home||null,team:b.team||null,line:Number.isFinite(Number(b.line))?Number(b.line):null,price:Number.isFinite(Number(b.price))?Number(b.price):null,units:Number.isFinite(Number(b.units))?Number(b.units):null,stake:Number.isFinite(Number(b.stake))?Number(b.stake):null,payload:{...b,updatedAt:b.updatedAt||new Date().toISOString()},updated_at:new Date().toISOString()};
+}
+function updateCloudUi(message=null){
+  const title=$("cloudLedgerTitle"),status=$("cloudLedgerStatus"),account=$("cloudAccountBtn"),sync=$("cloudSyncBtn"),out=$("cloudSignOutBtn");
+  if(!title) return;
+  if(!cloudConfigured()){
+    title.textContent="☁️ Cloud setup needed";
+    status.textContent=message||"Add the Supabase publishable key in Settings, then sign in.";
+    account.classList.remove("hidden");sync.classList.add("hidden");out.classList.add("hidden");return;
+  }
+  if(!cloudUser){
+    title.textContent="☁️ Local-only mode";
+    status.textContent=message||"Sign in to sync this ledger across your devices.";
+    account.classList.remove("hidden");sync.classList.add("hidden");out.classList.add("hidden");return;
+  }
+  title.textContent=`☁️ Synced account • ${cloudUser.email||"signed in"}`;
+  status.textContent=message||(cloudLastSyncAt?`Last sync ${new Date(cloudLastSyncAt).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}. Local cache stays available offline.`:"Signed in. Ready to sync your ledger.");
+  account.classList.add("hidden");sync.classList.remove("hidden");out.classList.remove("hidden");
+}
+async function initCloudClient(){
+  cloudClient=null;cloudSession=null;cloudUser=null;
+  if(!cloudConfigured()){updateCloudUi();return;}
+  try{
+    cloudClient=globalThis.supabase.createClient(settings.supabaseUrl,settings.supabaseKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+    const {data,error}=await cloudClient.auth.getSession(); if(error) throw error;
+    cloudSession=data?.session||null;cloudUser=cloudSession?.user||null;updateCloudUi();
+    cloudClient.auth.onAuthStateChange(async(_event,session)=>{cloudSession=session||null;cloudUser=session?.user||null;updateCloudUi();if(cloudUser)await syncCloudLedger({reason:"auth"});});
+    if(cloudUser) await syncCloudLedger({reason:"startup"});
+  }catch(e){updateCloudUi(`Cloud unavailable: ${e.message||e}`);}
+}
+function scheduleCloudPush(){
+  if(!cloudUser||!cloudClient) return;
+  clearTimeout(cloudPushTimer);
+  cloudPushTimer=setTimeout(()=>pushAllLocalBetsToCloud().catch(e=>updateCloudUi(`Sync warning: ${e.message||e}`)),500);
+}
+async function pushAllLocalBetsToCloud(){
+  if(!cloudUser||!cloudClient||cloudSyncBusy) return;
+  const bets=getBets();
+  if(!bets.length){cloudLastSyncAt=new Date().toISOString();updateCloudUi();return;}
+  const rows=bets.map(betToCloudRow);
+  const {error}=await cloudClient.from(CLOUD_TABLE).upsert(rows,{onConflict:"user_id,bet_id"});
+  if(error) throw error;
+  cloudLastSyncAt=new Date().toISOString();updateCloudUi(`Synced ${bets.length} wager${bets.length===1?"":"s"} to the private cloud ledger.`);
+}
+async function syncCloudLedger({reason="manual"}={}){
+  if(!cloudUser||!cloudClient||cloudSyncBusy) return;
+  cloudSyncBusy=true;updateCloudUi("Syncing phone/laptop ledger…");
+  try{
+    const {data,error}=await cloudClient.from(CLOUD_TABLE).select("*").eq("user_id",cloudUser.id).order("updated_at",{ascending:false});
+    if(error) throw error;
+    const local=getBets(), cloud=(data||[]).map(cloudRowToBet), map=new Map();
+    for(const b of cloud) map.set(String(b.id),b);
+    for(const b of local){
+      const k=String(b.id),existing=map.get(k);
+      if(!existing || betModifiedAt(b)>=Math.max(betModifiedAt(existing),new Date(existing.cloudUpdatedAt||0).getTime())) map.set(k,b);
+    }
+    const merged=[...map.values()].sort((a,b)=>new Date(b.createdAt||b.kickoff||0)-new Date(a.createdAt||a.kickoff||0));
+    localStorage.setItem("se-bets",JSON.stringify(merged));renderBets();renderLiveBets();renderBetMgmPerformance();
+    if(merged.length){
+      const {error:upErr}=await cloudClient.from(CLOUD_TABLE).upsert(merged.map(betToCloudRow),{onConflict:"user_id,bet_id"});if(upErr) throw upErr;
+    }
+    cloudLastSyncAt=new Date().toISOString();updateCloudUi(`Cloud sync complete • ${merged.length} wager${merged.length===1?"":"s"} available on this device.`);
+  }catch(e){updateCloudUi(`Sync failed: ${e.message||e}`);}
+  finally{cloudSyncBusy=false;}
+}
+async function deleteCloudBet(id){
+  if(!cloudUser||!cloudClient) return;
+  const {error}=await cloudClient.from(CLOUD_TABLE).delete().eq("user_id",cloudUser.id).eq("bet_id",String(id));
+  if(error) updateCloudUi(`Local delete saved; cloud delete will need retry: ${error.message}`);
+}
+async function clearCloudLedger(){
+  if(!cloudUser||!cloudClient) return;
+  const {error}=await cloudClient.from(CLOUD_TABLE).delete().eq("user_id",cloudUser.id);
+  if(error) throw error;
+}
+function openCloudAuth(){
+  if(!cloudConfigured()){alert("Open Settings first and add the Supabase project URL + publishable key for cloud sync.");openSettings();return;}
+  $("cloudAuthStatus").textContent="Use Sign in if you already have an account, or Create account the first time.";
+  $("cloudPassword").value="";$("cloudAuthDialog").showModal();
+}
+async function cloudSignIn(email,password){
+  if(!cloudClient) await initCloudClient();
+  const {data,error}=await cloudClient.auth.signInWithPassword({email,password});if(error)throw error;
+  cloudSession=data.session;cloudUser=data.user;updateCloudUi("Signed in. Merging this device with your cloud ledger…");await syncCloudLedger({reason:"signin"});
+}
+async function cloudSignUp(email,password){
+  if(!cloudClient) await initCloudClient();
+  const {data,error}=await cloudClient.auth.signUp({email,password});if(error)throw error;
+  if(data.session){cloudSession=data.session;cloudUser=data.user;await syncCloudLedger({reason:"signup"});return "Account created and signed in.";}
+  return "Account created. Check your email for the Supabase confirmation link, then return and sign in.";
+}
+
 function makeBetId(){
   if(globalThis.crypto?.randomUUID) return crypto.randomUUID();
   return `bet-${Date.now()}-${Math.random().toString(36).slice(2,10)}`;
@@ -916,9 +1030,12 @@ function getBets(){
     return rows;
   }catch{return [];}
 }
-function saveBets(bets){
+function saveBets(bets,{skipCloud=false}={}){
+  const now=new Date().toISOString();
+  bets.forEach(b=>{if(!b.updatedAt)b.updatedAt=now;});
   localStorage.setItem("se-bets",JSON.stringify(bets));
   renderBets(); renderLiveBets(); renderBetMgmPerformance();
+  if(!skipCloud)scheduleCloudPush();
 }
 function betSummary(rows){
   const graded=rows.filter(b=>["WIN","LOSS","PUSH"].includes(String(b.result||"").toUpperCase()));
@@ -1090,10 +1207,10 @@ $("betForm").addEventListener("submit",e=>{
   saveBets(bets); $("betDialog").close();
 });
 
-function openSettings(){ $("modeSelect").value=settings.mode; $("endpointInput").value=settings.endpoint||""; $("liveEndpointInput").value=settings.liveEndpoint||LIVE_EDGE_ENDPOINT; $("settingsDialog").showModal(); }
+function openSettings(){ $("modeSelect").value=settings.mode; $("endpointInput").value=settings.endpoint||""; $("liveEndpointInput").value=settings.liveEndpoint||LIVE_EDGE_ENDPOINT; $("supabaseUrlInput").value=settings.supabaseUrl||DEFAULT_SUPABASE_URL; $("supabaseKeyInput").value=settings.supabaseKey||""; $("settingsDialog").showModal(); }
 $("saveSettingsBtn").addEventListener("click",async()=>{
-  settings={version:SETTINGS_VERSION,mode:$("modeSelect").value,endpoint:$("endpointInput").value.trim(),liveEndpoint:$("liveEndpointInput").value.trim()||LIVE_EDGE_ENDPOINT};
-  localStorage.setItem("se-settings",JSON.stringify(settings)); $("settingsDialog").close();
+  settings={version:SETTINGS_VERSION,mode:$("modeSelect").value,endpoint:$("endpointInput").value.trim(),liveEndpoint:$("liveEndpointInput").value.trim()||LIVE_EDGE_ENDPOINT,supabaseUrl:$("supabaseUrlInput").value.trim()||DEFAULT_SUPABASE_URL,supabaseKey:$("supabaseKeyInput").value.trim()};
+  localStorage.setItem("se-settings",JSON.stringify(settings)); $("settingsDialog").close(); await initCloudClient();
   await loadGames();
   await loadPerformance();
   if(activeView==="live") await loadLiveGames();
@@ -1152,19 +1269,27 @@ $("editBetClose").addEventListener("click",()=>$("editBetDialog").close());
 $("editBetKind").addEventListener("change",syncEditBetKind);
 $("manualBetBtn").addEventListener("click",openManualBet);
 $("manualBetKind").addEventListener("change",syncManualBetKind);
+$("cloudAccountBtn").addEventListener("click",openCloudAuth);
+$("cloudSyncBtn").addEventListener("click",()=>syncCloudLedger({reason:"manual"}));
+$("cloudSignOutBtn").addEventListener("click",async()=>{if(cloudClient)await cloudClient.auth.signOut();cloudSession=null;cloudUser=null;updateCloudUi("Signed out. This device still keeps its local cache.");});
+$("cloudAuthClose").addEventListener("click",()=>$("cloudAuthDialog").close());
+$("cloudAuthForm").addEventListener("submit",async e=>{e.preventDefault();const email=$("cloudEmail").value.trim(),password=$("cloudPassword").value;$("cloudAuthStatus").textContent="Signing in…";try{await cloudSignIn(email,password);$("cloudAuthDialog").close();}catch(err){$("cloudAuthStatus").textContent=`Sign in failed: ${err.message||err}`;}});
+$("cloudSignUpBtn").addEventListener("click",async()=>{const email=$("cloudEmail").value.trim(),password=$("cloudPassword").value;if(!email||!password){$("cloudAuthStatus").textContent="Enter an email and password first.";return;}$("cloudAuthStatus").textContent="Creating account…";try{$("cloudAuthStatus").textContent=await cloudSignUp(email,password);}catch(err){$("cloudAuthStatus").textContent=`Account creation failed: ${err.message||err}`;}});
 $("openBetMgmBtn").addEventListener("click",openBetMgm);
 $("checkBetResultsBtn").addEventListener("click",checkBetResults);
 $("exportBetsBtn").addEventListener("click",exportBets);
 $("importBetsBtn").addEventListener("click",()=>$("importBetsFile").click());
 $("importBetsFile").addEventListener("change",e=>{const file=e.target.files?.[0];if(file)importBetsFile(file);e.target.value="";});
-$("clearBetsBtn").addEventListener("click",()=>{if(confirm("Clear every wager from the local BetMGM ledger?")){saveBets([]);}});
+$("clearBetsBtn").addEventListener("click",async()=>{if(confirm(cloudUser?"Clear every wager from this device AND your synced cloud ledger?":"Clear every wager from the local ledger on this device?")){saveBets([],{skipCloud:true});if(cloudUser){try{await clearCloudLedger();updateCloudUi("Cloud ledger cleared.");}catch(e){updateCloudUi(`Local ledger cleared, but cloud clear failed: ${e.message||e}`);}}}});
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=73").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=80").catch(()=>{}));}
 (async()=>{
   renderLiveBets();
   renderBetMgmPerformance();
+  updateCloudUi();
+  await initCloudClient();
   await loadGames();
   await loadPerformance();
 })();

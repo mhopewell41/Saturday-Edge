@@ -7,7 +7,7 @@
   <title>Saturday Edge</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=73" />
+  <link rel="stylesheet" href="styles.css?v=80" />
 </head>
 <body>
   <div class="app-shell">
@@ -27,7 +27,7 @@
 
     <section class="hero">
       <div>
-        <div class="eyebrow">BETMGM • SPREADS • APP v0.7.3 • MODEL v0.5 • SHADOW v0.1 • LIVE v0.1 • MGM LEDGER v0.3</div>
+        <div class="eyebrow">BETMGM • SPREADS • APP v0.8.0 • MODEL v0.5 • SHADOW v0.1 • LIVE v0.1 • CLOUD LEDGER v0.1</div>
         <h2>Find the number.<br><span>Keep the receipts.</span></h2>
         <p id="statusText">Loading the live board…</p>
       </div>
@@ -206,7 +206,7 @@
         <div>
           <div class="eyebrow">PERSONAL SPORTSBOOK LEDGER</div>
           <h2>💰 My BetMGM Performance</h2>
-          <p class="ledger-note">Stored locally on this device. MODEL v0.5, Shadow Select, and Live Edge research records are never changed by your personal wagers.</p>
+          <p class="ledger-note">Local-first with optional private cloud sync. MODEL v0.5, Shadow Select, and Live Edge research records are never changed by your personal wagers.</p>
         </div>
         <div class="ledger-actions">
           <button id="openBetMgmBtn" class="btn primary" type="button">↗ Open BetMGM</button>
@@ -215,6 +215,19 @@
           <button id="exportBetsBtn" class="btn ghost" type="button">Export</button>
           <button id="importBetsBtn" class="btn ghost" type="button">Import</button>
           <input id="importBetsFile" type="file" accept="application/json,.json" class="hidden" />
+        </div>
+      </div>
+
+      <div class="cloud-ledger-panel">
+        <div>
+          <div class="eyebrow">PRIVATE CLOUD LEDGER</div>
+          <strong id="cloudLedgerTitle">☁️ Local-only mode</strong>
+          <span id="cloudLedgerStatus">Your bets are safe on this device. Connect an account to sync phone + laptop.</span>
+        </div>
+        <div class="cloud-ledger-actions">
+          <button id="cloudAccountBtn" class="btn ghost" type="button">Sign in / Create account</button>
+          <button id="cloudSyncBtn" class="btn ghost hidden" type="button">↻ Sync now</button>
+          <button id="cloudSignOutBtn" class="btn ghost hidden" type="button">Sign out</button>
         </div>
       </div>
 
@@ -326,7 +339,16 @@
         Live Edge Function URL
         <input id="liveEndpointInput" type="url" placeholder="https://YOUR_PROJECT.supabase.co/functions/v1/Saturday-edge-live" />
       </label>
-      <div class="note">API keys stay in Supabase Secrets. This page stores only public Edge Function URLs.</div>
+      <div class="settings-divider">Cloud account sync</div>
+      <label>
+        Supabase project URL
+        <input id="supabaseUrlInput" type="url" placeholder="https://YOUR_PROJECT.supabase.co" />
+      </label>
+      <label>
+        Supabase publishable key
+        <input id="supabaseKeyInput" type="password" autocomplete="off" placeholder="sb_publishable_..." />
+      </label>
+      <div class="note">The publishable key is designed for browser apps and is protected by Row Level Security. Never paste a service-role or secret key here.</div>
       <button id="saveSettingsBtn" class="btn primary full">Save settings</button>
     </div>
   </dialog>
@@ -414,6 +436,26 @@
     </form>
   </dialog>
 
+  <dialog id="cloudAuthDialog">
+    <div class="dialog-head">
+      <div>
+        <div class="eyebrow">ONE ACCOUNT • EVERY DEVICE</div>
+        <h2>☁️ Saturday Edge Cloud</h2>
+      </div>
+      <button id="cloudAuthClose" class="icon-btn">✕</button>
+    </div>
+    <form id="cloudAuthForm" class="settings-body">
+      <div class="manual-bet-note">Sign in on your phone and laptop with the same account. Your existing local bets are merged into the private cloud ledger on first sync.</div>
+      <label>Email<input id="cloudEmail" type="email" autocomplete="email" required /></label>
+      <label>Password<input id="cloudPassword" type="password" autocomplete="current-password" minlength="6" required /></label>
+      <div id="cloudAuthStatus" class="ledger-status">Use Sign in if you already created an account, or Create account the first time.</div>
+      <div class="cloud-auth-buttons">
+        <button id="cloudSignInSubmit" class="btn primary" type="submit">Sign in</button>
+        <button id="cloudSignUpBtn" class="btn ghost" type="button">Create account</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="betDialog">
     <div class="dialog-head">
       <div>
@@ -435,6 +477,7 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=73"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="app.js?v=80"></script>
 </body>
 </html>
