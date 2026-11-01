@@ -162,3 +162,22 @@ dialog{width:min(720px,calc(100vw - 28px));border:1px solid #365344;background:#
 .advanced-settings p{margin:0 0 10px;color:var(--muted);font-size:10px;line-height:1.45}
 .advanced-settings label{margin:10px 0}
 .cloud-forgot-btn{grid-column:1/-1;color:#bfe7ff;border-color:#355d70}
+
+
+/* v0.9.0 Multi-Sport Ledger Foundation */
+.ledger-sport-filter{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 10px;padding:6px;border:1px solid var(--line);border-radius:14px;background:rgba(4,13,9,.42)}
+.sport-filter-btn{border:1px solid transparent;background:transparent;color:var(--muted);padding:8px 11px;border-radius:10px;font-size:10px;font-weight:900;cursor:pointer}
+.sport-filter-btn.active{background:#dfffea;color:#07120c;border-color:#dfffea}
+.sport-pill{display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:5px 8px;border-radius:999px;border:1px solid var(--line);font-size:9px;font-weight:900;white-space:nowrap}
+.sport-pill.cfb{color:#a9f6c4;border-color:#36734d;background:rgba(84,240,143,.07)}
+.sport-pill.nfl{color:#c8ddff;border-color:#3c5f87;background:rgba(83,141,205,.08)}
+.sport-pill.cbb{color:#ffdba3;border-color:#805d2d;background:rgba(255,174,73,.07)}
+.sport-pill.nba{color:#f1c8ff;border-color:#704783;background:rgba(190,94,226,.07)}
+.sport-entry-hint{margin:-4px 0 4px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;color:var(--muted);font-size:10px;line-height:1.4;background:rgba(255,255,255,.02)}
+.personal-splits{grid-template-columns:repeat(2,minmax(0,1fr))}
+.personal-bets-table{min-width:1220px}
+@media(max-width:620px){
+  .ledger-sport-filter{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .sport-filter-btn{width:100%}
+  .personal-splits{grid-template-columns:1fr}
+}

@@ -1,13 +1,21 @@
 {
   "name": "Saturday Edge",
   "short_name": "Sat Edge",
-  "description": "College football spread analysis with live edge, private cloud ledger, and prospective research receipts",
+  "description": "Multi-sport spread analysis and private wager tracking for CFB, NFL, college basketball, and NBA",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#07100c",
   "theme_color": "#07100c",
   "icons": [
-    {"src":"icon-192.png","sizes":"192x192","type":"image/png"},
-    {"src":"icon-512.png","sizes":"512x512","type":"image/png"}
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
   ]
 }

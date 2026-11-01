@@ -3,7 +3,7 @@ const PERFORMANCE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions
 const LIVE_EDGE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/Saturday-edge-live";
 const BET_CHECK_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/Saturday-edge-bet-check";
 const BETMGM_URL = "https://sports.betmgm.com/";
-const SETTINGS_VERSION = 16;
+const SETTINGS_VERSION = 17;
 const LIVE_AUTO_REFRESH_MS = 2 * 60 * 1000;
 const DEFAULT_SUPABASE_URL = "https://ahskdtpxsjqasbpbvxja.supabase.co";
 const CLOUD_TABLE = "se_user_bets";
@@ -46,6 +46,23 @@ let currentShadowFilter = "ALL";
 let currentBetGame = null;
 let currentBetKind = "PREGAME";
 let currentEditingBetId = null;
+let currentLedgerSportFilter = "ALL";
+
+const EDGE_SPORTS = {
+  CFB:{label:"College Football",short:"CFB",icon:"🏈",grader:true},
+  NFL:{label:"NFL",short:"NFL",icon:"🏈",grader:false},
+  CBB:{label:"College Basketball",short:"CBB",icon:"🏀",grader:false},
+  NBA:{label:"NBA",short:"NBA",icon:"🏀",grader:false}
+};
+function normalizeSport(value){
+  const s=String(value||"CFB").toUpperCase();
+  return EDGE_SPORTS[s]?s:"CFB";
+}
+function sportMeta(value){ return EDGE_SPORTS[normalizeSport(value)]; }
+function sportBadge(value){
+  const s=normalizeSport(value),m=sportMeta(s);
+  return `<span class="sport-pill ${s.toLowerCase()}">${m.icon} ${m.short}</span>`;
+}
 let lastPayload = null;
 let performance = null;
 let activeView = "pregame";
@@ -406,7 +423,7 @@ function openLiveBet(id){
 window.openLiveBet=openLiveBet;
 
 function renderLiveBets(){
-  const rows=getBets().filter(b=>b.kind==="LIVE");
+  const rows=getBets().filter(b=>b.kind==="LIVE"&&normalizeSport(b.sport)==="CFB");
   $("liveBetCount").textContent=rows.length;
   $("liveUnitsRisked").textContent=`${rows.reduce((sum,b)=>sum+Number(b.units||0),0).toFixed(1)}u`;
   if(!rows.length){$("liveBetsTableWrap").innerHTML=`<div class="empty">No in-game BetMGM wagers tracked yet. Use “+ Bet Placed” on a live card.</div>`;return;}
@@ -893,12 +910,21 @@ function sameKickoffMinute(a,b){
   const x=new Date(a).getTime(), y=new Date(b).getTime();
   return Number.isFinite(x)&&Number.isFinite(y)&&Math.abs(x-y)<60000;
 }
-function manualGameId(away,home,kickoff){
+function manualGameId(away,home,kickoff,sport="CFB"){
   const slug=v=>String(v||"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,36);
   const day=kickoff?String(kickoff).slice(0,10):new Date().toISOString().slice(0,10);
-  return `manual-${slug(away)}-${slug(home)}-${day}`;
+  return `manual-${normalizeSport(sport).toLowerCase()}-${slug(away)}-${slug(home)}-${day}`;
+}
+function updateManualSportHint(){
+  const s=normalizeSport($("manualSport")?.value);
+  if(!$("manualSportHint")) return;
+  $("manualSportHint").textContent=s==="CFB"
+    ?"CFB wagers use the current automatic result checker."
+    :`${sportMeta(s).label} wagers will sync across devices now. Automatic grading arrives with the ${sportMeta(s).short} Edge engine.`;
 }
 function openManualBet(){
+  $("manualSport").value="CFB";
+  updateManualSportHint();
   $("manualBetKind").value="PREGAME";
   $("manualAway").value=""; $("manualHome").value=""; $("manualTeam").value="";
   $("manualLine").value=""; $("manualPrice").value="-110"; $("manualUnits").value="1"; $("manualStake").value="";
@@ -921,7 +947,7 @@ function betModifiedAt(b){
 }
 function cloudRowToBet(row){
   const payload=row?.payload && typeof row.payload==="object" ? {...row.payload} : {};
-  return {...payload,id:payload.id||row.bet_id,kind:payload.kind||row.kind||"PREGAME",result:payload.result||row.result||"PENDING",kickoff:payload.kickoff||row.kickoff,away:payload.away||row.away,home:payload.home||row.home,team:payload.team||row.team,line:payload.line??row.line,price:payload.price??row.price,units:payload.units??row.units,stake:payload.stake??row.stake,cloudUpdatedAt:row.updated_at};
+  return {...payload,id:payload.id||row.bet_id,sport:normalizeSport(payload.sport||"CFB"),market:payload.market||"SPREAD",kind:payload.kind||row.kind||"PREGAME",result:payload.result||row.result||"PENDING",kickoff:payload.kickoff||row.kickoff,away:payload.away||row.away,home:payload.home||row.home,team:payload.team||row.team,line:payload.line??row.line,price:payload.price??row.price,units:payload.units??row.units,stake:payload.stake??row.stake,cloudUpdatedAt:row.updated_at};
 }
 function betToCloudRow(b){
   return {user_id:cloudUser.id,bet_id:String(b.id),kind:b.kind||"PREGAME",result:b.result||"PENDING",kickoff:b.kickoff||null,away:b.away||null,home:b.home||null,team:b.team||null,line:Number.isFinite(Number(b.line))?Number(b.line):null,price:Number.isFinite(Number(b.price))?Number(b.price):null,units:Number.isFinite(Number(b.units))?Number(b.units):null,stake:Number.isFinite(Number(b.stake))?Number(b.stake):null,payload:{...b,updatedAt:b.updatedAt||new Date().toISOString()},updated_at:new Date().toISOString()};
@@ -1050,7 +1076,14 @@ function getBets(){
     const rows=JSON.parse(localStorage.getItem("se-bets")||"[]");
     if(!Array.isArray(rows)) return [];
     let changed=false;
-    rows.forEach(b=>{if(!b.id){b.id=makeBetId();changed=true;} if(!b.kind)b.kind="PREGAME"; if(!b.result)b.result="PENDING";});
+    rows.forEach(b=>{
+      if(!b.id){b.id=makeBetId();changed=true;}
+      if(!b.kind){b.kind="PREGAME";changed=true;}
+      if(!b.result){b.result="PENDING";changed=true;}
+      const normalized=normalizeSport(b.sport);
+      if(b.sport!==normalized){b.sport=normalized;changed=true;}
+      if(!b.market){b.market="SPREAD";changed=true;}
+    });
     if(changed)localStorage.setItem("se-bets",JSON.stringify(rows));
     return rows;
   }catch{return [];}
@@ -1077,7 +1110,7 @@ function splitCard(label,s){
   return `<article class="split-card actionable"><div><strong>${escapeHtml(label)}</strong><small>${s.graded} GRADED</small></div><strong>${s.wins}-${s.losses}${s.pushes?`-${s.pushes}`:""}</strong><span>${fmtUnits(s.unitsProfit)} • ROI ${fmtPct(s.roi)}${s.avgClv===null?"":` • CLV ${s.avgClv>=0?"+":""}${s.avgClv.toFixed(2)}`}</span></article>`;
 }
 function renderBetMgmPerformance(){
-  const bets=getBets(), all=betSummary(bets), pre=betSummary(bets.filter(b=>b.kind!=="LIVE")), live=betSummary(bets.filter(b=>b.kind==="LIVE"));
+  const bets=getBets(), all=betSummary(bets);
   $("personalRecord").textContent=`${all.wins}-${all.losses}${all.pushes?`-${all.pushes}`:""}`;
   $("personalRecordSub").textContent=`${all.graded} graded • ${all.pending} pending`;
   $("personalUnits").textContent=fmtUnits(all.unitsProfit);
@@ -1088,7 +1121,7 @@ function renderBetMgmPerformance(){
   $("personalDollars").textContent=`${all.dollarsProfit<0?"-":""}$${Math.abs(all.dollarsProfit).toFixed(2)}`;
   $("personalDollars").className=all.dollarsProfit>0?"positive":all.dollarsProfit<0?"negative":"";
   $("personalDollarsSub").textContent=all.cashCount?`$${all.dollarsRisked.toFixed(2)} graded cash risk`:`Add stake $ to track cash P/L`;
-  $("personalSplits").innerHTML=splitCard("🏟️ Pregame",pre)+splitCard("⚡ Live Edge",live);
+  $("personalSplits").innerHTML=["CFB","NFL","CBB","NBA"].map(s=>splitCard(`${sportMeta(s).icon} ${sportMeta(s).short}`,betSummary(bets.filter(b=>normalizeSport(b.sport)===s)))).join("");
   $("pendingBetCount").textContent=all.pending;
 }
 function resultPill(b){
@@ -1101,9 +1134,11 @@ function resultPill(b){
 function renderBets(){
   const bets=getBets(); $("betCount").textContent=bets.length;
   $("unitsRisked").textContent=`${bets.reduce((sum,b)=>sum+Number(b.units||0),0).toFixed(1)}u`;
-  if(!bets.length){$("betsTableWrap").innerHTML=`<div class="empty">No BetMGM wagers tracked yet. Use “+ Bet Placed” on a Pregame or Live Edge card, or add one manually.</div>`;return;}
-  $("betsTableWrap").innerHTML=`<table class="bets-table personal-bets-table"><thead><tr><th>Date</th><th>Type</th><th>Game</th><th>Side</th><th>Line</th><th>Odds</th><th>Stake</th><th>Result</th><th>Net</th><th>Edge</th><th>Actions</th></tr></thead><tbody>${bets.map(b=>`<tr>
-    <td>${new Date(b.createdAt).toLocaleDateString()}</td><td>${escapeHtml(b.kind||"PREGAME")}${b.manualEntry?`<br><small>MANUAL</small>`:""}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}</td><td>${escapeHtml(b.team)}</td><td>${fmtLine(b.line)}</td><td>${fmtPrice(b.price)}</td><td>${Number(b.stake)>0?`$${Number(b.stake).toFixed(2)}`:"—"}</td><td>${resultPill(b)}</td><td>${["WIN","LOSS","PUSH"].includes(b.result)?`${fmtUnits(b.unitsProfit)}${Number.isFinite(Number(b.dollarsProfit))?`<br><small>${Number(b.dollarsProfit)<0?"-":""}$${Math.abs(Number(b.dollarsProfit)).toFixed(2)}</small>`:""}`:"—"}</td><td>${b.edge===null||b.edge===undefined?"—":`${Number(b.edge)>=0?"+":""}${Number(b.edge).toFixed(1)}`}</td><td><div class="bet-row-actions"><button class="small-btn" onclick="openEditBet('${escapeHtml(b.id)}')">Edit</button><button class="small-btn danger" onclick="deleteBet('${escapeHtml(b.id)}')">Delete</button></div></td>
+  const visible=currentLedgerSportFilter==="ALL"?bets:bets.filter(b=>normalizeSport(b.sport)===currentLedgerSportFilter);
+  if(!bets.length){$("betsTableWrap").innerHTML=`<div class="empty">No sportsbook wagers tracked yet. Add one from the CFB board or use Manual Bet for CFB, NFL, CBB, or NBA.</div>`;return;}
+  if(!visible.length){$("betsTableWrap").innerHTML=`<div class="empty">No ${escapeHtml(currentLedgerSportFilter)} wagers are in your ledger yet.</div>`;return;}
+  $("betsTableWrap").innerHTML=`<table class="bets-table personal-bets-table"><thead><tr><th>Date</th><th>Sport</th><th>Type</th><th>Game</th><th>Side</th><th>Line</th><th>Odds</th><th>Stake</th><th>Result</th><th>Net</th><th>Edge</th><th>Actions</th></tr></thead><tbody>${visible.map(b=>`<tr>
+    <td>${new Date(b.createdAt).toLocaleDateString()}</td><td>${sportBadge(b.sport)}</td><td>${escapeHtml(b.kind||"PREGAME")}${b.manualEntry?`<br><small>MANUAL</small>`:""}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}</td><td>${escapeHtml(b.team)}</td><td>${fmtLine(b.line)}</td><td>${fmtPrice(b.price)}</td><td>${Number(b.stake)>0?`$${Number(b.stake).toFixed(2)}`:"—"}</td><td>${resultPill(b)}</td><td>${["WIN","LOSS","PUSH"].includes(b.result)?`${fmtUnits(b.unitsProfit)}${Number.isFinite(Number(b.dollarsProfit))?`<br><small>${Number(b.dollarsProfit)<0?"-":""}$${Math.abs(Number(b.dollarsProfit)).toFixed(2)}</small>`:""}`:"—"}</td><td>${b.edge===null||b.edge===undefined?"—":`${Number(b.edge)>=0?"+":""}${Number(b.edge).toFixed(1)}`}</td><td><div class="bet-row-actions"><button class="small-btn" onclick="openEditBet('${escapeHtml(b.id)}')">Edit</button><button class="small-btn danger" onclick="deleteBet('${escapeHtml(b.id)}')">Delete</button></div></td>
   </tr>`).join("")}</tbody></table>`;
 }
 function clearBetGrade(b){
@@ -1127,7 +1162,7 @@ function syncEditBetKind(){
 function openEditBet(id){
   const b=getBets().find(x=>String(x.id)===String(id)); if(!b)return;
   currentEditingBetId=String(b.id);
-  $("editBetId").value=b.id; $("editBetKind").value=b.kind==="LIVE"?"LIVE":"PREGAME";
+  $("editBetId").value=b.id; $("editSport").value=normalizeSport(b.sport); $("editBetKind").value=b.kind==="LIVE"?"LIVE":"PREGAME";
   $("editAway").value=b.away||""; $("editHome").value=b.home||""; $("editTeam").value=b.team||"";
   $("editLine").value=Number.isFinite(Number(b.line))?Number(b.line):""; $("editPrice").value=Number.isFinite(Number(b.price))?Number(b.price):-110;
   $("editUnits").value=Number.isFinite(Number(b.units))?Number(b.units):1; $("editStake").value=Number.isFinite(Number(b.stake))&&Number(b.stake)>0?Number(b.stake):"";
@@ -1139,35 +1174,48 @@ window.openEditBet=openEditBet;
 async function checkBetResults(){
   const btn=$("checkBetResultsBtn"), status=$("betCheckStatus"), bets=getBets();
   if(!bets.length){status.textContent="No tracked bets to check.";return;}
-  btn.disabled=true; status.textContent="Checking completed games…";
+  const cfbBets=bets.filter(b=>normalizeSport(b.sport)==="CFB");
+  const futureSportCount=bets.length-cfbBets.length;
+  if(!cfbBets.length){
+    status.textContent=`Your ${futureSportCount} NFL/CBB/NBA wager${futureSportCount===1?" is":"s are"} safely tracked. Their automatic graders arrive with those Edge engines.`;
+    return;
+  }
+  btn.disabled=true; status.textContent=`Checking ${cfbBets.length} CFB wager${cfbBets.length===1?"":"s"}…`;
   try{
-    const payload=bets.map(b=>({id:b.id,kind:b.kind,gameId:b.gameId,cfbdGameId:b.cfbdGameId,season:b.season,week:b.week,kickoff:b.kickoff,team:b.team,line:b.line,price:b.price,units:b.units,stake:b.stake,away:b.away,home:b.home}));
+    const payload=cfbBets.map(b=>({id:b.id,sport:"CFB",market:b.market||"SPREAD",kind:b.kind,gameId:b.gameId,cfbdGameId:b.cfbdGameId,season:b.season,week:b.week,kickoff:b.kickoff,team:b.team,line:b.line,price:b.price,units:b.units,stake:b.stake,away:b.away,home:b.home}));
     const res=await fetch(BET_CHECK_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({bets:payload})});
     const data=await res.json();
     if(!res.ok)throw new Error(data?.error||`Result check failed (${res.status})`);
     const byId=new Map((data.results||[]).map(r=>[String(r.id),r]));
     let newly=0;
     bets.forEach(b=>{
+      if(normalizeSport(b.sport)!=="CFB") return;
       const r=byId.get(String(b.id)); if(!r||r.status!=="GRADED")return;
       if(!["WIN","LOSS","PUSH"].includes(b.result))newly++;
       b.result=r.result; b.atsMargin=r.atsMargin; b.unitsProfit=r.unitsProfit; b.dollarsProfit=r.dollarsProfit; b.finalScore=r.finalScore; b.closingLine=r.closingLine; b.clv=r.clv; b.gradedAt=r.gradedAt; b.gradeSource=r.source;
     });
     saveBets(bets);
-    status.textContent=`Checked ${data.checked||bets.length} wagers • ${data.graded||0} completed • ${data.pending||0} pending${newly?` • ${newly} newly graded`:""}.`;
+    status.textContent=`CFB checker: ${data.checked||cfbBets.length} checked • ${data.graded||0} completed • ${data.pending||0} pending${newly?` • ${newly} newly graded`:""}${futureSportCount?` • ${futureSportCount} NFL/CBB/NBA tracked separately`:""}.`;
   }catch(e){status.textContent=`⚠ ${e.message||e}`;}
   finally{btn.disabled=false;}
 }
 function exportBets(){
-  const blob=new Blob([JSON.stringify({version:"Saturday Edge BetMGM Ledger v0.1",exportedAt:new Date().toISOString(),bets:getBets()},null,2)],{type:"application/json"});
-  const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=`saturday-edge-betmgm-ledger-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  const blob=new Blob([JSON.stringify({version:"Saturday Edge Multi-Sport Ledger v0.1",exportedAt:new Date().toISOString(),bets:getBets()},null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=`saturday-edge-multisport-ledger-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 function importBetsFile(file){
-  const reader=new FileReader();reader.onload=()=>{try{const parsed=JSON.parse(reader.result);const incoming=Array.isArray(parsed)?parsed:parsed?.bets;if(!Array.isArray(incoming))throw new Error("No bets array found.");const current=getBets();const seen=new Set(current.map(b=>b.id));for(const row of incoming){if(!row.id)row.id=makeBetId();if(!seen.has(row.id)){current.push(row);seen.add(row.id);}}current.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));saveBets(current);$("betCheckStatus").textContent=`Imported ${incoming.length} ledger rows. Duplicate IDs were skipped.`;}catch(e){alert(`Could not import ledger: ${e.message||e}`);}};reader.readAsText(file);
+  const reader=new FileReader();reader.onload=()=>{try{const parsed=JSON.parse(reader.result);const incoming=Array.isArray(parsed)?parsed:parsed?.bets;if(!Array.isArray(incoming))throw new Error("No bets array found.");const current=getBets();const seen=new Set(current.map(b=>b.id));for(const row of incoming){
+      if(!row.id)row.id=makeBetId();
+      row.sport=normalizeSport(row.sport);
+      if(!row.market)row.market="SPREAD";
+      if(!seen.has(row.id)){current.push(row);seen.add(row.id);}
+    }current.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));saveBets(current);$("betCheckStatus").textContent=`Imported ${incoming.length} ledger rows. Duplicate IDs were skipped.`;}catch(e){alert(`Could not import ledger: ${e.message||e}`);}};reader.readAsText(file);
 }
 function openBetMgm(){window.open(BETMGM_URL,"_blank","noopener,noreferrer");} window.openBetMgm=openBetMgm;
 
 $("manualBetForm").addEventListener("submit",e=>{
   e.preventDefault();
+  const sport=normalizeSport($("manualSport").value);
   const kind=$("manualBetKind").value==="LIVE"?"LIVE":"PREGAME";
   const away=$("manualAway").value.trim(), home=$("manualHome").value.trim(), team=$("manualTeam").value.trim();
   const line=Number($("manualLine").value), price=Number($("manualPrice").value), units=Number($("manualUnits").value);
@@ -1182,8 +1230,8 @@ $("manualBetForm").addEventListener("submit",e=>{
   const season=kickoffDate.getFullYear();
   const bets=getBets();
   bets.unshift({
-    id:makeBetId(),kind,result:"PENDING",manualEntry:true,createdAt:new Date().toISOString(),
-    gameId:manualGameId(away,home,kickoff),cfbdGameId:null,season,week:null,kickoff,
+    id:makeBetId(),sport,market:"SPREAD",kind,result:"PENDING",manualEntry:true,createdAt:new Date().toISOString(),
+    gameId:manualGameId(away,home,kickoff,sport),cfbdGameId:null,season,week:null,kickoff,
     away,home,team,line,price,units,stake,
     edge:null,projectedLine:null,classification:"MANUAL",
     gameState:kind==="LIVE"?($("manualGameState").value.trim()||"LIVE • manually entered"):null,
@@ -1191,7 +1239,7 @@ $("manualBetForm").addEventListener("submit",e=>{
     notes:$("manualNotes").value.trim()
   });
   saveBets(bets);
-  $("betCheckStatus").textContent=`Manual ${kind.toLowerCase()} wager added. Check Results will grade it automatically after the game is final.`;
+  $("betCheckStatus").textContent=sport==="CFB"?`Manual CFB ${kind.toLowerCase()} wager added. Check Results can grade it after the game is final.`:`${sport} wager added and synced. Automatic ${sport} grading will arrive with the ${sport} Edge engine.`;
   $("manualBetDialog").close();
 });
 
@@ -1199,16 +1247,16 @@ $("editBetForm").addEventListener("submit",e=>{
   e.preventDefault();
   const id=$("editBetId").value||currentEditingBetId, bets=getBets(), idx=bets.findIndex(b=>String(b.id)===String(id));
   if(idx<0){alert("That wager could not be found.");return;}
-  const b=bets[idx], old={kind:b.kind,away:b.away,home:b.home,team:b.team,line:Number(b.line),price:Number(b.price),units:Number(b.units),stake:b.stake===null||b.stake===undefined?null:Number(b.stake),kickoff:b.kickoff};
-  const kind=$("editBetKind").value==="LIVE"?"LIVE":"PREGAME", away=$("editAway").value.trim(), home=$("editHome").value.trim(), team=$("editTeam").value.trim();
+  const b=bets[idx], old={sport:normalizeSport(b.sport),kind:b.kind,away:b.away,home:b.home,team:b.team,line:Number(b.line),price:Number(b.price),units:Number(b.units),stake:b.stake===null||b.stake===undefined?null:Number(b.stake),kickoff:b.kickoff};
+  const sport=normalizeSport($("editSport").value), kind=$("editBetKind").value==="LIVE"?"LIVE":"PREGAME", away=$("editAway").value.trim(), home=$("editHome").value.trim(), team=$("editTeam").value.trim();
   const line=Number($("editLine").value), price=Number($("editPrice").value), units=Number($("editUnits").value), stake=$("editStake").value===""?null:Number($("editStake").value);
   const kickoffDate=new Date($("editKickoff").value);
   if(!away||!home||!team||!Number.isFinite(line)||!Number.isFinite(price)||!Number.isFinite(units)||Number.isNaN(kickoffDate.getTime())){alert("Please enter a valid game, side, line, price, units, and kickoff time.");return;}
   const kickoff=kickoffDate.toISOString();
-  const criticalChanged=old.kind!==kind||old.away!==away||old.home!==home||old.team!==team||old.line!==line||old.price!==price||old.units!==units||old.stake!==stake||!sameKickoffMinute(old.kickoff,kickoff);
-  const identityChanged=old.away!==away||old.home!==home||!sameKickoffMinute(old.kickoff,kickoff);
-  Object.assign(b,{kind,away,home,team,line,price,units,stake,kickoff,season:kickoffDate.getFullYear(),notes:$("editNotes").value.trim(),gameState:kind==="LIVE"?($("editGameState").value.trim()||b.gameState||"LIVE • edited"):null,scoreAtBet:kind==="LIVE"?($("editScoreAtBet").value.trim()||null):null,editedAt:new Date().toISOString()});
-  if(identityChanged){b.gameId=manualGameId(away,home,kickoff);b.cfbdGameId=null;b.week=null;b.manualEntry=true;}
+  const criticalChanged=old.sport!==sport||old.kind!==kind||old.away!==away||old.home!==home||old.team!==team||old.line!==line||old.price!==price||old.units!==units||old.stake!==stake||!sameKickoffMinute(old.kickoff,kickoff);
+  const identityChanged=old.sport!==sport||old.away!==away||old.home!==home||!sameKickoffMinute(old.kickoff,kickoff);
+  Object.assign(b,{sport,market:b.market||"SPREAD",kind,away,home,team,line,price,units,stake,kickoff,season:kickoffDate.getFullYear(),notes:$("editNotes").value.trim(),gameState:kind==="LIVE"?($("editGameState").value.trim()||b.gameState||"LIVE • edited"):null,scoreAtBet:kind==="LIVE"?($("editScoreAtBet").value.trim()||null):null,editedAt:new Date().toISOString()});
+  if(identityChanged){b.gameId=manualGameId(away,home,kickoff,sport);b.cfbdGameId=null;b.week=null;b.manualEntry=true;}
   if(identityChanged||old.team!==team){b.edge=null;b.edgeScore=null;b.projectedLine=null;b.classification="EDITED";b.consensusLine=null;b.betmgmVsConsensus=null;b.matchedSystems=[];}
   if(criticalChanged)clearBetGrade(b);
   bets[idx]=b; saveBets(bets);
@@ -1225,9 +1273,9 @@ $("betForm").addEventListener("submit",e=>{
     const isRec=teamNamesMatch(team,lm.recommendedTeam);
     const edge=lm.edge===null||lm.edge===undefined?null:(isRec?Number(lm.edge):-Number(lm.edge));
     const fair=lm.fairLineForRecommendedTeam===null||lm.fairLineForRecommendedTeam===undefined?null:(isRec?Number(lm.fairLineForRecommendedTeam):-Number(lm.fairLineForRecommendedTeam));
-    bets.unshift({id:makeBetId(),kind:"LIVE",result:"PENDING",createdAt:new Date().toISOString(),gameId:g.gameId,cfbdGameId:g.cfbdGameId,season:g.season??null,week:g.week??null,kickoff:g.kickoff,away:g.away,home:g.home,team,line:Number($("betLine").value),price:Number($("betPrice").value),units:Number($("betUnits").value),stake,edge,projectedLine:fair,classification:lm.signal||"TRACK_ONLY",gameState:liveGameState(g),scoreAtBet:`${g.awayScore??"—"}-${g.homeScore??"—"}`,possession:g.possession??null,pregameClose:lm.pregameCloseForRecommendedTeam??null,notes:$("betNotes").value.trim()});
+    bets.unshift({id:makeBetId(),sport:"CFB",market:"SPREAD",kind:"LIVE",result:"PENDING",createdAt:new Date().toISOString(),gameId:g.gameId,cfbdGameId:g.cfbdGameId,season:g.season??null,week:g.week??null,kickoff:g.kickoff,away:g.away,home:g.home,team,line:Number($("betLine").value),price:Number($("betPrice").value),units:Number($("betUnits").value),stake,edge,projectedLine:fair,classification:lm.signal||"TRACK_ONLY",gameState:liveGameState(g),scoreAtBet:`${g.awayScore??"—"}-${g.homeScore??"—"}`,possession:g.possession??null,pregameClose:lm.pregameCloseForRecommendedTeam??null,notes:$("betNotes").value.trim()});
   }else{
-    bets.unshift({id:makeBetId(),kind:"PREGAME",result:"PENDING",createdAt:new Date().toISOString(),gameId:g.id,cfbdGameId:g.cfbdGameId??null,season:g.season??null,week:g.week??null,kickoff:g.kickoff,away:g.away,home:g.home,team,line:Number($("betLine").value),price:Number($("betPrice").value),units:Number($("betUnits").value),stake,edge:Number(g.edge),edgeScore:Number(g.edgeScore),projectedLine:Number(g.projectedLine),classification:g.classification,consensusLine:g.marketConsensus?.consensusLine??null,betmgmVsConsensus:g.marketConsensus?.betmgmVsConsensus??null,matchedSystems:g.matchedSystems||[],notes:$("betNotes").value.trim()});
+    bets.unshift({id:makeBetId(),sport:"CFB",market:"SPREAD",kind:"PREGAME",result:"PENDING",createdAt:new Date().toISOString(),gameId:g.id,cfbdGameId:g.cfbdGameId??null,season:g.season??null,week:g.week??null,kickoff:g.kickoff,away:g.away,home:g.home,team,line:Number($("betLine").value),price:Number($("betPrice").value),units:Number($("betUnits").value),stake,edge:Number(g.edge),edgeScore:Number(g.edgeScore),projectedLine:Number(g.projectedLine),classification:g.classification,consensusLine:g.marketConsensus?.consensusLine??null,betmgmVsConsensus:g.marketConsensus?.betmgmVsConsensus??null,matchedSystems:g.matchedSystems||[],notes:$("betNotes").value.trim()});
   }
   saveBets(bets); $("betDialog").close();
 });
@@ -1316,6 +1364,14 @@ $("editBetClose").addEventListener("click",()=>$("editBetDialog").close());
 $("editBetKind").addEventListener("change",syncEditBetKind);
 $("manualBetBtn").addEventListener("click",openManualBet);
 $("manualBetKind").addEventListener("change",syncManualBetKind);
+$("manualSport").addEventListener("change",updateManualSportHint);
+$("ledgerSportFilter").addEventListener("click",e=>{
+  const btn=e.target.closest("[data-ledger-sport]");
+  if(!btn)return;
+  currentLedgerSportFilter=btn.dataset.ledgerSport||"ALL";
+  $("ledgerSportFilter").querySelectorAll("[data-ledger-sport]").forEach(x=>x.classList.toggle("active",x===btn));
+  renderBets();
+});
 $("cloudAccountBtn").addEventListener("click",openCloudAuth);
 $("cloudSyncBtn").addEventListener("click",()=>syncCloudLedger({reason:"manual"}));
 $("cloudSignOutBtn").addEventListener("click",async()=>{if(cloudClient)await cloudClient.auth.signOut();cloudSession=null;cloudUser=null;updateCloudUi("Signed out. This device still keeps its local cache.");});
@@ -1352,7 +1408,7 @@ $("clearBetsBtn").addEventListener("click",async()=>{if(confirm(cloudUser?"Clear
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=81").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=90").catch(()=>{}));}
 (async()=>{
   renderLiveBets();
   renderBetMgmPerformance();

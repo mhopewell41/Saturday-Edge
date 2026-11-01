@@ -7,7 +7,7 @@
   <title>Saturday Edge</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=81" />
+  <link rel="stylesheet" href="styles.css?v=90" />
 </head>
 <body>
   <div class="app-shell">
@@ -16,7 +16,7 @@
         <div class="ball">🏈</div>
         <div>
           <h1>SATURDAY EDGE</h1>
-          <p>College Football Spread Analyzer</p>
+          <p>Multi-Sport Spread Intelligence</p>
         </div>
       </div>
       <div class="top-actions">
@@ -27,7 +27,7 @@
 
     <section class="hero">
       <div>
-        <div class="eyebrow">BETMGM • SPREADS • APP v0.8.1 • MODEL v0.5 • SHADOW v0.1 • LIVE v0.1 • CLOUD LEDGER v0.1</div>
+        <div class="eyebrow">BETMGM • SPREADS • APP v0.9.0 • CFB MODEL v0.5 • MULTI-SPORT LEDGER v0.1 • CLOUD SYNC</div>
         <h2>Find the number.<br><span>Keep the receipts.</span></h2>
         <p id="statusText">Loading the live board…</p>
       </div>
@@ -205,8 +205,8 @@
       <div class="section-heading betmgm-heading">
         <div>
           <div class="eyebrow">PERSONAL SPORTSBOOK LEDGER</div>
-          <h2>💰 My BetMGM Performance</h2>
-          <p class="ledger-note">Local-first with optional private cloud sync. MODEL v0.5, Shadow Select, and Live Edge research records are never changed by your personal wagers.</p>
+          <h2>💰 My Sportsbook Performance</h2>
+          <p class="ledger-note">One private ledger for CFB, NFL, college basketball, and NBA. CFB MODEL v0.5, Shadow Select, and Live Edge research records stay separate from your personal wagers.</p>
         </div>
         <div class="ledger-actions">
           <button id="openBetMgmBtn" class="btn primary" type="button">↗ Open BetMGM</button>
@@ -240,12 +240,20 @@
 
       <div id="personalSplits" class="performance-breakdown personal-splits"></div>
 
+      <div class="ledger-sport-filter" id="ledgerSportFilter" aria-label="Filter personal ledger by sport">
+        <button class="sport-filter-btn active" type="button" data-ledger-sport="ALL">All Sports</button>
+        <button class="sport-filter-btn" type="button" data-ledger-sport="CFB">🏈 CFB</button>
+        <button class="sport-filter-btn" type="button" data-ledger-sport="NFL">🏈 NFL</button>
+        <button class="sport-filter-btn" type="button" data-ledger-sport="CBB">🏀 CBB</button>
+        <button class="sport-filter-btn" type="button" data-ledger-sport="NBA">🏀 NBA</button>
+      </div>
+
       <div class="tracker-summary">
         <div><span>Tracked bets</span><strong id="betCount">0</strong></div>
         <div><span>Units entered</span><strong id="unitsRisked">0.0u</strong></div>
         <div><span>Pending</span><strong id="pendingBetCount">0</strong></div>
       </div>
-      <div id="betCheckStatus" class="ledger-status">Results are checked against Saturday Edge final results, with CFBD fallback when available.</div>
+      <div id="betCheckStatus" class="ledger-status">CFB wagers grade with the current Saturday Edge/CFBD checker. NFL, CBB, and NBA wagers stay safely tracked until their dedicated graders are added.</div>
       <div id="betsTableWrap" class="table-wrap"></div>
       <div class="ledger-footer-actions"><button id="clearBetsBtn" class="btn ghost danger">Clear ledger</button></div>
     </section>
@@ -367,7 +375,16 @@
       <button id="manualBetClose" class="icon-btn">✕</button>
     </div>
     <form id="manualBetForm" class="settings-body manual-bet-form">
-      <div class="manual-bet-note">Enter the ticket exactly as BetMGM gave it to you. Edge will grade the spread automatically after the game is final.</div>
+      <div class="manual-bet-note">Enter the ticket exactly as your sportsbook gave it to you. CFB can grade automatically today; NFL, CBB, and NBA are tracked now and will connect to their own graders as those Edge engines come online.</div>
+      <label>Sport
+        <select id="manualSport" required>
+          <option value="CFB">🏈 College Football</option>
+          <option value="NFL">🏈 NFL</option>
+          <option value="CBB">🏀 College Basketball</option>
+          <option value="NBA">🏀 NBA</option>
+        </select>
+      </label>
+      <div id="manualSportHint" class="sport-entry-hint">CFB wagers use the current automatic result checker.</div>
       <label>Bet type
         <select id="manualBetKind" required>
           <option value="PREGAME">Pregame</option>
@@ -409,7 +426,15 @@
     </div>
     <form id="editBetForm" class="settings-body manual-bet-form">
       <input id="editBetId" type="hidden" />
-      <div class="manual-bet-note">Edit the ticket to match BetMGM exactly. If a grading field changes, Edge resets this wager to Pending so Check Results can grade the corrected ticket again.</div>
+      <div class="manual-bet-note">Edit the ticket to match your sportsbook exactly. Changing the sport, matchup, side, line, price, units, or game time resets the wager to Pending.</div>
+      <label>Sport
+        <select id="editSport" required>
+          <option value="CFB">🏈 College Football</option>
+          <option value="NFL">🏈 NFL</option>
+          <option value="CBB">🏀 College Basketball</option>
+          <option value="NBA">🏀 NBA</option>
+        </select>
+      </label>
       <label>Bet type
         <select id="editBetKind" required>
           <option value="PREGAME">Pregame</option>
@@ -501,6 +526,6 @@
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-  <script src="app.js?v=81"></script>
+  <script src="app.js?v=90"></script>
 </body>
 </html>
