@@ -1,9 +1,9 @@
 const LIVE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-board";
 const PERFORMANCE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-performance";
-const LIVE_EDGE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-live";
+const LIVE_EDGE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/Saturday-edge-live";
 const BET_CHECK_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/Saturday-edge-bet-check";
 const BETMGM_URL = "https://sports.betmgm.com/";
-const SETTINGS_VERSION = 12;
+const SETTINGS_VERSION = 13;
 const LIVE_AUTO_REFRESH_MS = 2 * 60 * 1000;
 
 const DEMO_GAMES = [
