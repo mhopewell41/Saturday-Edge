@@ -7,7 +7,7 @@
   <title>Saturday Edge</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=80" />
+  <link rel="stylesheet" href="styles.css?v=81" />
 </head>
 <body>
   <div class="app-shell">
@@ -27,7 +27,7 @@
 
     <section class="hero">
       <div>
-        <div class="eyebrow">BETMGM • SPREADS • APP v0.8.0 • MODEL v0.5 • SHADOW v0.1 • LIVE v0.1 • CLOUD LEDGER v0.1</div>
+        <div class="eyebrow">BETMGM • SPREADS • APP v0.8.1 • MODEL v0.5 • SHADOW v0.1 • LIVE v0.1 • CLOUD LEDGER v0.1</div>
         <h2>Find the number.<br><span>Keep the receipts.</span></h2>
         <p id="statusText">Loading the live board…</p>
       </div>
@@ -340,15 +340,20 @@
         <input id="liveEndpointInput" type="url" placeholder="https://YOUR_PROJECT.supabase.co/functions/v1/Saturday-edge-live" />
       </label>
       <div class="settings-divider">Cloud account sync</div>
-      <label>
-        Supabase project URL
-        <input id="supabaseUrlInput" type="url" placeholder="https://YOUR_PROJECT.supabase.co" />
-      </label>
-      <label>
-        Supabase publishable key
-        <input id="supabaseKeyInput" type="password" autocomplete="off" placeholder="sb_publishable_..." />
-      </label>
-      <div class="note">The publishable key is designed for browser apps and is protected by Row Level Security. Never paste a service-role or secret key here.</div>
+      <div id="cloudSettingsStatus" class="note">Cloud sync uses your saved Saturday Edge connection automatically.</div>
+      <details class="advanced-settings">
+        <summary>Advanced cloud setup</summary>
+        <p>Only use this if cloud sync has not been configured on this device.</p>
+        <label>
+          Supabase project URL
+          <input id="supabaseUrlInput" type="url" placeholder="https://YOUR_PROJECT.supabase.co" />
+        </label>
+        <label>
+          Supabase publishable key
+          <input id="supabaseKeyInput" type="password" autocomplete="off" placeholder="sb_publishable_..." />
+        </label>
+        <div class="note">Use only a publishable key beginning with <strong>sb_publishable_</strong>. Never enter a secret or service-role key.</div>
+      </details>
       <button id="saveSettingsBtn" class="btn primary full">Save settings</button>
     </div>
   </dialog>
@@ -452,7 +457,25 @@
       <div class="cloud-auth-buttons">
         <button id="cloudSignInSubmit" class="btn primary" type="submit">Sign in</button>
         <button id="cloudSignUpBtn" class="btn ghost" type="button">Create account</button>
+        <button id="cloudForgotBtn" class="btn ghost cloud-forgot-btn" type="button">Forgot password?</button>
       </div>
+    </form>
+  </dialog>
+
+  <dialog id="cloudResetDialog">
+    <div class="dialog-head">
+      <div>
+        <div class="eyebrow">ACCOUNT RECOVERY</div>
+        <h2>🔐 Choose a New Password</h2>
+      </div>
+      <button id="cloudResetClose" class="icon-btn">✕</button>
+    </div>
+    <form id="cloudResetForm" class="settings-body">
+      <div class="manual-bet-note">Enter a new password for your Saturday Edge cloud account.</div>
+      <label>New password<input id="cloudNewPassword" type="password" autocomplete="new-password" minlength="8" required /></label>
+      <label>Confirm password<input id="cloudConfirmPassword" type="password" autocomplete="new-password" minlength="8" required /></label>
+      <div id="cloudResetStatus" class="ledger-status">Use at least 8 characters.</div>
+      <button class="btn primary full" type="submit">Update password</button>
     </form>
   </dialog>
 
@@ -478,6 +501,6 @@
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-  <script src="app.js?v=80"></script>
+  <script src="app.js?v=81"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
-const CACHE = 'saturday-edge-shell-v080';
-const SHELL = ['./', './index.html', './styles.css?v=80', './app.js?v=80', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const CACHE = 'saturday-edge-shell-v081';
+const SHELL = ['./', './index.html', './styles.css?v=81', './app.js?v=81', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', event => {
   self.skipWaiting();

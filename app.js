@@ -3,7 +3,7 @@ const PERFORMANCE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions
 const LIVE_EDGE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/Saturday-edge-live";
 const BET_CHECK_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/Saturday-edge-bet-check";
 const BETMGM_URL = "https://sports.betmgm.com/";
-const SETTINGS_VERSION = 15;
+const SETTINGS_VERSION = 16;
 const LIVE_AUTO_REFRESH_MS = 2 * 60 * 1000;
 const DEFAULT_SUPABASE_URL = "https://ahskdtpxsjqasbpbvxja.supabase.co";
 const CLOUD_TABLE = "se_user_bets";
@@ -950,7 +950,17 @@ async function initCloudClient(){
     cloudClient=globalThis.supabase.createClient(settings.supabaseUrl,settings.supabaseKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
     const {data,error}=await cloudClient.auth.getSession(); if(error) throw error;
     cloudSession=data?.session||null;cloudUser=cloudSession?.user||null;updateCloudUi();
-    cloudClient.auth.onAuthStateChange(async(_event,session)=>{cloudSession=session||null;cloudUser=session?.user||null;updateCloudUi();if(cloudUser)await syncCloudLedger({reason:"auth"});});
+    cloudClient.auth.onAuthStateChange(async(event,session)=>{
+      cloudSession=session||null;
+      cloudUser=session?.user||null;
+      if(event==="PASSWORD_RECOVERY"){
+        updateCloudUi("Password recovery link verified. Choose a new password.");
+        setTimeout(openCloudResetDialog,0);
+        return;
+      }
+      updateCloudUi();
+      if(cloudUser) await syncCloudLedger({reason:"auth"});
+    });
     if(cloudUser) await syncCloudLedger({reason:"startup"});
   }catch(e){updateCloudUi(`Cloud unavailable: ${e.message||e}`);}
 }
@@ -1000,7 +1010,7 @@ async function clearCloudLedger(){
   if(error) throw error;
 }
 function openCloudAuth(){
-  if(!cloudConfigured()){alert("Open Settings first and add the Supabase project URL + publishable key for cloud sync.");openSettings();return;}
+  if(!cloudConfigured()){alert("Cloud sync is not configured on this device yet. Open Settings → Advanced cloud setup once, then sign in.");openSettings();return;}
   $("cloudAuthStatus").textContent="Use Sign in if you already have an account, or Create account the first time.";
   $("cloudPassword").value="";$("cloudAuthDialog").showModal();
 }
@@ -1014,6 +1024,21 @@ async function cloudSignUp(email,password){
   const {data,error}=await cloudClient.auth.signUp({email,password});if(error)throw error;
   if(data.session){cloudSession=data.session;cloudUser=data.user;await syncCloudLedger({reason:"signup"});return "Account created and signed in.";}
   return "Account created. Check your email for the Supabase confirmation link, then return and sign in.";
+}
+async function cloudSendPasswordReset(email){
+  if(!email) throw new Error("Enter your account email first.");
+  if(!cloudClient) await initCloudClient();
+  if(!cloudClient) throw new Error("Cloud connection is not configured on this device.");
+  const redirectTo=`${window.location.origin}${window.location.pathname}`;
+  const {error}=await cloudClient.auth.resetPasswordForEmail(email,{redirectTo});
+  if(error) throw error;
+  return "Password reset email sent. Open the link in that email, then choose your new password.";
+}
+function openCloudResetDialog(){
+  $("cloudNewPassword").value="";
+  $("cloudConfirmPassword").value="";
+  $("cloudResetStatus").textContent="Use at least 8 characters.";
+  $("cloudResetDialog").showModal();
 }
 
 function makeBetId(){
@@ -1207,10 +1232,32 @@ $("betForm").addEventListener("submit",e=>{
   saveBets(bets); $("betDialog").close();
 });
 
-function openSettings(){ $("modeSelect").value=settings.mode; $("endpointInput").value=settings.endpoint||""; $("liveEndpointInput").value=settings.liveEndpoint||LIVE_EDGE_ENDPOINT; $("supabaseUrlInput").value=settings.supabaseUrl||DEFAULT_SUPABASE_URL; $("supabaseKeyInput").value=settings.supabaseKey||""; $("settingsDialog").showModal(); }
+function openSettings(){
+  $("modeSelect").value=settings.mode;
+  $("endpointInput").value=settings.endpoint||"";
+  $("liveEndpointInput").value=settings.liveEndpoint||LIVE_EDGE_ENDPOINT;
+  $("supabaseUrlInput").value=settings.supabaseUrl||DEFAULT_SUPABASE_URL;
+  $("supabaseKeyInput").value=settings.supabaseKey||"";
+  $("cloudSettingsStatus").textContent=settings.supabaseKey
+    ?"☁️ Cloud sync is configured. Account connection is managed automatically on this device."
+    :"☁️ Cloud sync needs one-time setup on this device. Open Advanced cloud setup below.";
+  $("settingsDialog").showModal();
+}
 $("saveSettingsBtn").addEventListener("click",async()=>{
-  settings={version:SETTINGS_VERSION,mode:$("modeSelect").value,endpoint:$("endpointInput").value.trim(),liveEndpoint:$("liveEndpointInput").value.trim()||LIVE_EDGE_ENDPOINT,supabaseUrl:$("supabaseUrlInput").value.trim()||DEFAULT_SUPABASE_URL,supabaseKey:$("supabaseKeyInput").value.trim()};
-  localStorage.setItem("se-settings",JSON.stringify(settings)); $("settingsDialog").close(); await initCloudClient();
+  const advancedUrl=$("supabaseUrlInput").value.trim();
+  const advancedKey=$("supabaseKeyInput").value.trim();
+  settings={
+    ...settings,
+    version:SETTINGS_VERSION,
+    mode:$("modeSelect").value,
+    endpoint:$("endpointInput").value.trim(),
+    liveEndpoint:$("liveEndpointInput").value.trim()||LIVE_EDGE_ENDPOINT,
+    supabaseUrl:advancedUrl||settings.supabaseUrl||DEFAULT_SUPABASE_URL,
+    supabaseKey:advancedKey||settings.supabaseKey||""
+  };
+  localStorage.setItem("se-settings",JSON.stringify(settings));
+  $("settingsDialog").close();
+  await initCloudClient();
   await loadGames();
   await loadPerformance();
   if(activeView==="live") await loadLiveGames();
@@ -1273,8 +1320,29 @@ $("cloudAccountBtn").addEventListener("click",openCloudAuth);
 $("cloudSyncBtn").addEventListener("click",()=>syncCloudLedger({reason:"manual"}));
 $("cloudSignOutBtn").addEventListener("click",async()=>{if(cloudClient)await cloudClient.auth.signOut();cloudSession=null;cloudUser=null;updateCloudUi("Signed out. This device still keeps its local cache.");});
 $("cloudAuthClose").addEventListener("click",()=>$("cloudAuthDialog").close());
+$("cloudResetClose").addEventListener("click",()=>$("cloudResetDialog").close());
 $("cloudAuthForm").addEventListener("submit",async e=>{e.preventDefault();const email=$("cloudEmail").value.trim(),password=$("cloudPassword").value;$("cloudAuthStatus").textContent="Signing in…";try{await cloudSignIn(email,password);$("cloudAuthDialog").close();}catch(err){$("cloudAuthStatus").textContent=`Sign in failed: ${err.message||err}`;}});
 $("cloudSignUpBtn").addEventListener("click",async()=>{const email=$("cloudEmail").value.trim(),password=$("cloudPassword").value;if(!email||!password){$("cloudAuthStatus").textContent="Enter an email and password first.";return;}$("cloudAuthStatus").textContent="Creating account…";try{$("cloudAuthStatus").textContent=await cloudSignUp(email,password);}catch(err){$("cloudAuthStatus").textContent=`Account creation failed: ${err.message||err}`;}});
+$("cloudForgotBtn").addEventListener("click",async()=>{
+  const email=$("cloudEmail").value.trim();
+  $("cloudAuthStatus").textContent="Sending password reset email…";
+  try{$("cloudAuthStatus").textContent=await cloudSendPasswordReset(email);}
+  catch(err){$("cloudAuthStatus").textContent=`Password reset failed: ${err.message||err}`;}
+});
+$("cloudResetForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const p1=$("cloudNewPassword").value,p2=$("cloudConfirmPassword").value;
+  if(p1.length<8){$("cloudResetStatus").textContent="Password must be at least 8 characters.";return;}
+  if(p1!==p2){$("cloudResetStatus").textContent="Passwords do not match.";return;}
+  $("cloudResetStatus").textContent="Updating password…";
+  try{
+    if(!cloudClient) await initCloudClient();
+    const {error}=await cloudClient.auth.updateUser({password:p1});
+    if(error) throw error;
+    $("cloudResetStatus").textContent="Password updated successfully.";
+    setTimeout(()=>{$("cloudResetDialog").close();updateCloudUi("Password updated. Your cloud ledger remains connected.");history.replaceState(null,"",window.location.pathname);},700);
+  }catch(err){$("cloudResetStatus").textContent=`Password update failed: ${err.message||err}`;}
+});
 $("openBetMgmBtn").addEventListener("click",openBetMgm);
 $("checkBetResultsBtn").addEventListener("click",checkBetResults);
 $("exportBetsBtn").addEventListener("click",exportBets);
@@ -1284,7 +1352,7 @@ $("clearBetsBtn").addEventListener("click",async()=>{if(confirm(cloudUser?"Clear
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=80").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=81").catch(()=>{}));}
 (async()=>{
   renderLiveBets();
   renderBetMgmPerformance();
