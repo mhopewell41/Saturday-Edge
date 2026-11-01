@@ -7,7 +7,7 @@
   <title>Saturday Edge</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=72" />
+  <link rel="stylesheet" href="styles.css?v=73" />
 </head>
 <body>
   <div class="app-shell">
@@ -27,7 +27,7 @@
 
     <section class="hero">
       <div>
-        <div class="eyebrow">BETMGM • SPREADS • APP v0.7.2 • MODEL v0.5 • SHADOW v0.1 • LIVE v0.1 • MGM LEDGER v0.2</div>
+        <div class="eyebrow">BETMGM • SPREADS • APP v0.7.3 • MODEL v0.5 • SHADOW v0.1 • LIVE v0.1 • MGM LEDGER v0.3</div>
         <h2>Find the number.<br><span>Keep the receipts.</span></h2>
         <p id="statusText">Loading the live board…</p>
       </div>
@@ -372,6 +372,48 @@
     </form>
   </dialog>
 
+  <dialog id="editBetDialog">
+    <div class="dialog-head">
+      <div>
+        <div class="eyebrow">CORRECT ONE RECEIPT</div>
+        <h2>✏️ Edit Bet</h2>
+      </div>
+      <button id="editBetClose" class="icon-btn">✕</button>
+    </div>
+    <form id="editBetForm" class="settings-body manual-bet-form">
+      <input id="editBetId" type="hidden" />
+      <div class="manual-bet-note">Edit the ticket to match BetMGM exactly. If a grading field changes, Edge resets this wager to Pending so Check Results can grade the corrected ticket again.</div>
+      <label>Bet type
+        <select id="editBetKind" required>
+          <option value="PREGAME">Pregame</option>
+          <option value="LIVE">Live / In-game</option>
+        </select>
+      </label>
+      <div class="manual-two-col">
+        <label>Away team<input id="editAway" type="text" maxlength="80" required /></label>
+        <label>Home team<input id="editHome" type="text" maxlength="80" required /></label>
+      </div>
+      <label>Your bet side<input id="editTeam" type="text" maxlength="80" required /></label>
+      <div class="manual-two-col">
+        <label>BetMGM line<input id="editLine" type="number" step="0.5" required /></label>
+        <label>Price<input id="editPrice" type="number" step="1" required /></label>
+      </div>
+      <div class="manual-two-col">
+        <label>Units risked<input id="editUnits" type="number" min="0.1" step="0.1" required /></label>
+        <label>Stake $<input id="editStake" type="number" min="0" step="0.01" placeholder="Optional" /></label>
+      </div>
+      <label>Game date / kickoff<input id="editKickoff" type="datetime-local" required /></label>
+      <div id="editLiveFields" class="manual-live-fields hidden">
+        <div class="manual-two-col">
+          <label>Score when bet placed<input id="editScoreAtBet" type="text" maxlength="30" /></label>
+          <label>Game state<input id="editGameState" type="text" maxlength="40" /></label>
+        </div>
+      </div>
+      <label>Notes<input id="editNotes" type="text" maxlength="160" placeholder="Optional ticket note" /></label>
+      <button class="btn primary full" type="submit">Save Changes</button>
+    </form>
+  </dialog>
+
   <dialog id="betDialog">
     <div class="dialog-head">
       <div>
@@ -393,6 +435,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=72"></script>
+  <script src="app.js?v=73"></script>
 </body>
 </html>

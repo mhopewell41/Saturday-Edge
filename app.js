@@ -3,7 +3,7 @@ const PERFORMANCE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions
 const LIVE_EDGE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/Saturday-edge-live";
 const BET_CHECK_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/Saturday-edge-bet-check";
 const BETMGM_URL = "https://sports.betmgm.com/";
-const SETTINGS_VERSION = 13;
+const SETTINGS_VERSION = 14;
 const LIVE_AUTO_REFRESH_MS = 2 * 60 * 1000;
 
 const DEMO_GAMES = [
@@ -42,6 +42,7 @@ let currentTimeFilter = "ALL";
 let currentShadowFilter = "ALL";
 let currentBetGame = null;
 let currentBetKind = "PREGAME";
+let currentEditingBetId = null;
 let lastPayload = null;
 let performance = null;
 let activeView = "pregame";
@@ -396,13 +397,12 @@ function openLiveBet(id){
 window.openLiveBet=openLiveBet;
 
 function renderLiveBets(){
-  const all=getBets().map((b,i)=>({b,i}));
-  const rows=all.filter(x=>x.b.kind==="LIVE");
+  const rows=getBets().filter(b=>b.kind==="LIVE");
   $("liveBetCount").textContent=rows.length;
-  $("liveUnitsRisked").textContent=`${rows.reduce((s,x)=>s+Number(x.b.units||0),0).toFixed(1)}u`;
+  $("liveUnitsRisked").textContent=`${rows.reduce((sum,b)=>sum+Number(b.units||0),0).toFixed(1)}u`;
   if(!rows.length){$("liveBetsTableWrap").innerHTML=`<div class="empty">No in-game BetMGM wagers tracked yet. Use “+ Bet Placed” on a live card.</div>`;return;}
-  $("liveBetsTableWrap").innerHTML=`<table class="bets-table"><thead><tr><th>Time</th><th>Game</th><th>State</th><th>Side</th><th>Line</th><th>Stake</th><th>Result</th><th>Net</th><th>Live edge</th><th></th></tr></thead><tbody>${rows.map(({b,i})=>`<tr>
-    <td>${new Date(b.createdAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}</td><td>${escapeHtml(b.gameState||"LIVE")}<br><small>${escapeHtml(b.scoreAtBet||"")}</small></td><td>${escapeHtml(b.team)} ${fmtLine(b.line)}<br><small>${fmtPrice(b.price)}</small></td><td>${fmtLine(b.line)}</td><td>${Number(b.stake)>0?`$${Number(b.stake).toFixed(2)}`:`${Number(b.units).toFixed(1)}u`}</td><td>${resultPill(b)}</td><td>${["WIN","LOSS","PUSH"].includes(b.result)?fmtUnits(b.unitsProfit):"—"}</td><td>${b.edge===null||b.edge===undefined?"—":`${Number(b.edge)>=0?"+":""}${Number(b.edge).toFixed(1)}`}</td><td><button class="small-btn" onclick="removeBet(${i})">Remove</button></td>
+  $("liveBetsTableWrap").innerHTML=`<table class="bets-table"><thead><tr><th>Time</th><th>Game</th><th>State</th><th>Side</th><th>Line</th><th>Stake</th><th>Result</th><th>Net</th><th>Live edge</th><th>Actions</th></tr></thead><tbody>${rows.map(b=>`<tr>
+    <td>${new Date(b.createdAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}</td><td>${escapeHtml(b.gameState||"LIVE")}<br><small>${escapeHtml(b.scoreAtBet||"")}</small></td><td>${escapeHtml(b.team)} ${fmtLine(b.line)}<br><small>${fmtPrice(b.price)}</small></td><td>${fmtLine(b.line)}</td><td>${Number(b.stake)>0?`$${Number(b.stake).toFixed(2)}`:`${Number(b.units).toFixed(1)}u`}</td><td>${resultPill(b)}</td><td>${["WIN","LOSS","PUSH"].includes(b.result)?fmtUnits(b.unitsProfit):"—"}</td><td>${b.edge===null||b.edge===undefined?"—":`${Number(b.edge)>=0?"+":""}${Number(b.edge).toFixed(1)}`}</td><td><div class="bet-row-actions"><button class="small-btn" onclick="openEditBet('${escapeHtml(b.id)}')">Edit</button><button class="small-btn danger" onclick="deleteBet('${escapeHtml(b.id)}')">Delete</button></div></td>
   </tr>`).join("")}</tbody></table>`;
 }
 
@@ -876,6 +876,14 @@ function localDateTimeValue(d=new Date()){
   const pad=n=>String(n).padStart(2,"0");
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+function isoToLocalDateTimeValue(value){
+  const d=value?new Date(value):new Date();
+  return Number.isNaN(d.getTime())?localDateTimeValue():localDateTimeValue(d);
+}
+function sameKickoffMinute(a,b){
+  const x=new Date(a).getTime(), y=new Date(b).getTime();
+  return Number.isFinite(x)&&Number.isFinite(y)&&Math.abs(x-y)<60000;
+}
 function manualGameId(away,home,kickoff){
   const slug=v=>String(v||"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,36);
   const day=kickoff?String(kickoff).slice(0,10):new Date().toISOString().slice(0,10);
@@ -950,13 +958,41 @@ function resultPill(b){
 }
 function renderBets(){
   const bets=getBets(); $("betCount").textContent=bets.length;
-  $("unitsRisked").textContent=`${bets.reduce((s,b)=>s+Number(b.units||0),0).toFixed(1)}u`;
-  if(!bets.length){$("betsTableWrap").innerHTML=`<div class="empty">No BetMGM wagers tracked yet. Use “+ Bet Placed” on a Pregame or Live Edge card.</div>`;return;}
-  $("betsTableWrap").innerHTML=`<table class="bets-table personal-bets-table"><thead><tr><th>Date</th><th>Type</th><th>Game</th><th>Side</th><th>Line</th><th>Odds</th><th>Stake</th><th>Result</th><th>Net</th><th>Edge</th><th></th></tr></thead><tbody>${bets.map((b,i)=>`<tr>
-    <td>${new Date(b.createdAt).toLocaleDateString()}</td><td>${escapeHtml(b.kind||"PREGAME")}${b.manualEntry?`<br><small>MANUAL</small>`:""}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}</td><td>${escapeHtml(b.team)}</td><td>${fmtLine(b.line)}</td><td>${fmtPrice(b.price)}</td><td>${Number(b.stake)>0?`$${Number(b.stake).toFixed(2)}`:"—"}</td><td>${resultPill(b)}</td><td>${["WIN","LOSS","PUSH"].includes(b.result)?`${fmtUnits(b.unitsProfit)}${Number.isFinite(Number(b.dollarsProfit))?`<br><small>${Number(b.dollarsProfit)<0?"-":""}$${Math.abs(Number(b.dollarsProfit)).toFixed(2)}</small>`:""}`:"—"}</td><td>${b.edge===null||b.edge===undefined?"—":`${Number(b.edge)>=0?"+":""}${Number(b.edge).toFixed(1)}`}</td><td><button class="small-btn" onclick="removeBet(${i})">Remove</button></td>
+  $("unitsRisked").textContent=`${bets.reduce((sum,b)=>sum+Number(b.units||0),0).toFixed(1)}u`;
+  if(!bets.length){$("betsTableWrap").innerHTML=`<div class="empty">No BetMGM wagers tracked yet. Use “+ Bet Placed” on a Pregame or Live Edge card, or add one manually.</div>`;return;}
+  $("betsTableWrap").innerHTML=`<table class="bets-table personal-bets-table"><thead><tr><th>Date</th><th>Type</th><th>Game</th><th>Side</th><th>Line</th><th>Odds</th><th>Stake</th><th>Result</th><th>Net</th><th>Edge</th><th>Actions</th></tr></thead><tbody>${bets.map(b=>`<tr>
+    <td>${new Date(b.createdAt).toLocaleDateString()}</td><td>${escapeHtml(b.kind||"PREGAME")}${b.manualEntry?`<br><small>MANUAL</small>`:""}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}</td><td>${escapeHtml(b.team)}</td><td>${fmtLine(b.line)}</td><td>${fmtPrice(b.price)}</td><td>${Number(b.stake)>0?`$${Number(b.stake).toFixed(2)}`:"—"}</td><td>${resultPill(b)}</td><td>${["WIN","LOSS","PUSH"].includes(b.result)?`${fmtUnits(b.unitsProfit)}${Number.isFinite(Number(b.dollarsProfit))?`<br><small>${Number(b.dollarsProfit)<0?"-":""}$${Math.abs(Number(b.dollarsProfit)).toFixed(2)}</small>`:""}`:"—"}</td><td>${b.edge===null||b.edge===undefined?"—":`${Number(b.edge)>=0?"+":""}${Number(b.edge).toFixed(1)}`}</td><td><div class="bet-row-actions"><button class="small-btn" onclick="openEditBet('${escapeHtml(b.id)}')">Edit</button><button class="small-btn danger" onclick="deleteBet('${escapeHtml(b.id)}')">Delete</button></div></td>
   </tr>`).join("")}</tbody></table>`;
 }
-function removeBet(i){const b=getBets();b.splice(i,1);saveBets(b);} window.removeBet=removeBet;
+function clearBetGrade(b){
+  b.result="PENDING";
+  for(const key of ["atsMargin","unitsProfit","dollarsProfit","finalScore","closingLine","clv","gradedAt","gradeSource"]) delete b[key];
+}
+function deleteBet(id){
+  const bets=getBets(), b=bets.find(x=>String(x.id)===String(id));
+  if(!b)return;
+  if(!confirm(`Delete this wager?
+
+${b.team} ${fmtLine(b.line)}
+${b.away} @ ${b.home}`))return;
+  saveBets(bets.filter(x=>String(x.id)!==String(id)));
+  $("betCheckStatus").textContent="Wager deleted from this device only.";
+}
+window.deleteBet=deleteBet;
+function syncEditBetKind(){
+  $("editLiveFields").classList.toggle("hidden",$("editBetKind").value!=="LIVE");
+}
+function openEditBet(id){
+  const b=getBets().find(x=>String(x.id)===String(id)); if(!b)return;
+  currentEditingBetId=String(b.id);
+  $("editBetId").value=b.id; $("editBetKind").value=b.kind==="LIVE"?"LIVE":"PREGAME";
+  $("editAway").value=b.away||""; $("editHome").value=b.home||""; $("editTeam").value=b.team||"";
+  $("editLine").value=Number.isFinite(Number(b.line))?Number(b.line):""; $("editPrice").value=Number.isFinite(Number(b.price))?Number(b.price):-110;
+  $("editUnits").value=Number.isFinite(Number(b.units))?Number(b.units):1; $("editStake").value=Number.isFinite(Number(b.stake))&&Number(b.stake)>0?Number(b.stake):"";
+  $("editKickoff").value=isoToLocalDateTimeValue(b.kickoff||b.createdAt); $("editScoreAtBet").value=b.scoreAtBet||""; $("editGameState").value=b.gameState||""; $("editNotes").value=b.notes||"";
+  syncEditBetKind(); $("editBetDialog").showModal();
+}
+window.openEditBet=openEditBet;
 
 async function checkBetResults(){
   const btn=$("checkBetResultsBtn"), status=$("betCheckStatus"), bets=getBets();
@@ -1015,6 +1051,27 @@ $("manualBetForm").addEventListener("submit",e=>{
   saveBets(bets);
   $("betCheckStatus").textContent=`Manual ${kind.toLowerCase()} wager added. Check Results will grade it automatically after the game is final.`;
   $("manualBetDialog").close();
+});
+
+$("editBetForm").addEventListener("submit",e=>{
+  e.preventDefault();
+  const id=$("editBetId").value||currentEditingBetId, bets=getBets(), idx=bets.findIndex(b=>String(b.id)===String(id));
+  if(idx<0){alert("That wager could not be found.");return;}
+  const b=bets[idx], old={kind:b.kind,away:b.away,home:b.home,team:b.team,line:Number(b.line),price:Number(b.price),units:Number(b.units),stake:b.stake===null||b.stake===undefined?null:Number(b.stake),kickoff:b.kickoff};
+  const kind=$("editBetKind").value==="LIVE"?"LIVE":"PREGAME", away=$("editAway").value.trim(), home=$("editHome").value.trim(), team=$("editTeam").value.trim();
+  const line=Number($("editLine").value), price=Number($("editPrice").value), units=Number($("editUnits").value), stake=$("editStake").value===""?null:Number($("editStake").value);
+  const kickoffDate=new Date($("editKickoff").value);
+  if(!away||!home||!team||!Number.isFinite(line)||!Number.isFinite(price)||!Number.isFinite(units)||Number.isNaN(kickoffDate.getTime())){alert("Please enter a valid game, side, line, price, units, and kickoff time.");return;}
+  const kickoff=kickoffDate.toISOString();
+  const criticalChanged=old.kind!==kind||old.away!==away||old.home!==home||old.team!==team||old.line!==line||old.price!==price||old.units!==units||old.stake!==stake||!sameKickoffMinute(old.kickoff,kickoff);
+  const identityChanged=old.away!==away||old.home!==home||!sameKickoffMinute(old.kickoff,kickoff);
+  Object.assign(b,{kind,away,home,team,line,price,units,stake,kickoff,season:kickoffDate.getFullYear(),notes:$("editNotes").value.trim(),gameState:kind==="LIVE"?($("editGameState").value.trim()||b.gameState||"LIVE • edited"):null,scoreAtBet:kind==="LIVE"?($("editScoreAtBet").value.trim()||null):null,editedAt:new Date().toISOString()});
+  if(identityChanged){b.gameId=manualGameId(away,home,kickoff);b.cfbdGameId=null;b.week=null;b.manualEntry=true;}
+  if(identityChanged||old.team!==team){b.edge=null;b.edgeScore=null;b.projectedLine=null;b.classification="EDITED";b.consensusLine=null;b.betmgmVsConsensus=null;b.matchedSystems=[];}
+  if(criticalChanged)clearBetGrade(b);
+  bets[idx]=b; saveBets(bets);
+  $("betCheckStatus").textContent=criticalChanged?"Wager updated and reset to Pending. Tap Check Results to grade the corrected ticket.":"Wager notes/context updated. Existing grade preserved.";
+  currentEditingBetId=null; $("editBetDialog").close();
 });
 
 $("betForm").addEventListener("submit",e=>{
@@ -1091,6 +1148,8 @@ $("dialogClose").addEventListener("click",()=>$("gameDialog").close());
 $("settingsClose").addEventListener("click",()=>$("settingsDialog").close());
 $("betDialogClose").addEventListener("click",()=>$("betDialog").close());
 $("manualBetClose").addEventListener("click",()=>$("manualBetDialog").close());
+$("editBetClose").addEventListener("click",()=>$("editBetDialog").close());
+$("editBetKind").addEventListener("change",syncEditBetKind);
 $("manualBetBtn").addEventListener("click",openManualBet);
 $("manualBetKind").addEventListener("change",syncManualBetKind);
 $("openBetMgmBtn").addEventListener("click",openBetMgm);
@@ -1102,7 +1161,7 @@ $("clearBetsBtn").addEventListener("click",()=>{if(confirm("Clear every wager fr
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=72").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=73").catch(()=>{}));}
 (async()=>{
   renderLiveBets();
   renderBetMgmPerformance();
