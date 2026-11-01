@@ -181,3 +181,26 @@ dialog{width:min(720px,calc(100vw - 28px));border:1px solid #365344;background:#
   .sport-filter-btn{width:100%}
   .personal-splits{grid-template-columns:1fr}
 }
+
+
+/* v0.9.1 Smart Bet Import */
+.smart-import-btn{border-color:#596f87;color:#d9ecff;background:rgba(104,169,229,.055)}
+.bet-slip-dialog{width:min(760px,calc(100vw - 24px))}
+.bet-slip-form{max-height:min(78vh,850px);overflow:auto}
+.smart-import-note{padding:11px 12px;border:1px solid #355d70;border-radius:12px;background:rgba(85,157,205,.055);color:#c5dbe8;font-size:11px;line-height:1.5}
+.smart-import-note strong{color:#e2f4ff}
+.bet-slip-preview-wrap{display:grid;grid-template-columns:130px 1fr;gap:14px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.018)}
+.bet-slip-preview{width:130px;height:170px;object-fit:contain;border-radius:10px;background:#020704;border:1px solid var(--line)}
+.bet-slip-preview-wrap>div{display:grid;gap:6px}.bet-slip-preview-wrap span{color:var(--muted);font-size:10px;line-height:1.4}
+.ocr-progress-track{height:7px;overflow:hidden;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid var(--line)}
+.ocr-progress-bar{height:100%;width:0;background:linear-gradient(90deg,#74baff,#8ff0b7);transition:width .18s ease}
+.smart-import-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.smart-import-grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.smart-import-confidence{padding:10px 12px;border:1px solid #4c654f;border-radius:11px;color:#cde7d3;background:rgba(84,240,143,.035);font-size:10px;line-height:1.45}
+.ocr-raw-box{border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.015)}
+.ocr-raw-box summary{cursor:pointer;padding:10px 12px;color:var(--muted);font-size:10px;font-weight:800}
+.ocr-raw-box textarea{width:calc(100% - 20px);margin:0 10px 10px;min-height:120px;resize:vertical;background:#07100c;color:#b9c9bf;border:1px solid var(--line);border-radius:9px;padding:10px;font:10px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace}
+@media(max-width:620px){
+  .bet-slip-preview-wrap{grid-template-columns:90px 1fr}.bet-slip-preview{width:90px;height:125px}
+  .smart-import-grid,.smart-import-grid.three{grid-template-columns:1fr}
+}

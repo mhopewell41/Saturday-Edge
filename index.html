@@ -7,7 +7,7 @@
   <title>Saturday Edge</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=90" />
+  <link rel="stylesheet" href="styles.css?v=91" />
 </head>
 <body>
   <div class="app-shell">
@@ -27,7 +27,7 @@
 
     <section class="hero">
       <div>
-        <div class="eyebrow">BETMGM • SPREADS • APP v0.9.0 • CFB MODEL v0.5 • MULTI-SPORT LEDGER v0.1 • CLOUD SYNC</div>
+        <div class="eyebrow">BETMGM • SPREADS • APP v0.9.1 • SMART BET IMPORT • CFB MODEL v0.5 • MULTI-SPORT LEDGER v0.1</div>
         <h2>Find the number.<br><span>Keep the receipts.</span></h2>
         <p id="statusText">Loading the live board…</p>
       </div>
@@ -210,6 +210,8 @@
         </div>
         <div class="ledger-actions">
           <button id="openBetMgmBtn" class="btn primary" type="button">↗ Open BetMGM</button>
+          <button id="importBetSlipBtn" class="btn ghost smart-import-btn" type="button">📸 Import Bet Slip</button>
+          <input id="betSlipFileInput" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" class="hidden" />
           <button id="manualBetBtn" class="btn ghost manual-bet-btn" type="button">＋ Manual Bet</button>
           <button id="checkBetResultsBtn" class="btn ghost" type="button">✓ Check Results</button>
           <button id="exportBetsBtn" class="btn ghost" type="button">Export</button>
@@ -364,6 +366,67 @@
       </details>
       <button id="saveSettingsBtn" class="btn primary full">Save settings</button>
     </div>
+  </dialog>
+
+  <dialog id="betSlipImportDialog" class="bet-slip-dialog">
+    <div class="dialog-head">
+      <div>
+        <div class="eyebrow">SMART BET IMPORT v0.1</div>
+        <h2>📸 Read Bet Slip</h2>
+      </div>
+      <button id="betSlipImportClose" class="icon-btn" type="button">✕</button>
+    </div>
+    <form id="betSlipImportForm" class="settings-body bet-slip-form">
+      <div class="smart-import-note">
+        Edge reads the screenshot on this device, fills what it can, and waits for your confirmation. <strong>Nothing is added until you tap Add to Ledger.</strong>
+      </div>
+      <div class="bet-slip-preview-wrap">
+        <img id="betSlipPreview" class="bet-slip-preview" alt="Bet slip preview" />
+        <div>
+          <strong id="betSlipOcrTitle">Ready to read ticket</strong>
+          <span id="betSlipOcrStatus">Choose a screenshot or share one to Saturday Edge.</span>
+          <div class="ocr-progress-track"><div id="betSlipOcrProgress" class="ocr-progress-bar"></div></div>
+        </div>
+      </div>
+      <div class="smart-import-grid">
+        <label>Sport
+          <select id="importSport" required>
+            <option value="CFB">🏈 College Football</option>
+            <option value="NFL">🏈 NFL</option>
+            <option value="CBB">🏀 College Basketball</option>
+            <option value="NBA">🏀 NBA</option>
+          </select>
+        </label>
+        <label>Bet type
+          <select id="importBetKind" required>
+            <option value="PREGAME">Pregame</option>
+            <option value="LIVE">Live / In-game</option>
+          </select>
+        </label>
+      </div>
+      <div class="smart-import-grid">
+        <label>Away team<input id="importAway" type="text" maxlength="80" placeholder="Confirm away team" required /></label>
+        <label>Home team<input id="importHome" type="text" maxlength="80" placeholder="Confirm home team" required /></label>
+      </div>
+      <label>Your bet side<input id="importTeam" type="text" maxlength="80" placeholder="Team you bet" required /></label>
+      <div class="smart-import-grid three">
+        <label>Line<input id="importLine" type="number" step="0.5" placeholder="+4.5" required /></label>
+        <label>Odds<input id="importPrice" type="number" step="1" value="-110" required /></label>
+        <label>Stake $<input id="importStake" type="number" min="0" step="0.01" placeholder="25.00" /></label>
+      </div>
+      <div class="smart-import-grid">
+        <label>Units risked<input id="importUnits" type="number" min="0.1" step="0.1" value="1" required /></label>
+        <label>Game date / kickoff<input id="importKickoff" type="datetime-local" required /></label>
+      </div>
+      <label>Sportsbook<input id="importSportsbook" type="text" maxlength="40" placeholder="Detected when possible" /></label>
+      <label>Notes<input id="importNotes" type="text" maxlength="160" placeholder="Optional" /></label>
+      <div id="betSlipConfidence" class="smart-import-confidence">Check every field against the ticket before saving.</div>
+      <details class="ocr-raw-box">
+        <summary>OCR text / troubleshooting</summary>
+        <textarea id="betSlipRawText" rows="7" readonly></textarea>
+      </details>
+      <button id="addImportedBetBtn" class="btn primary full" type="submit">Add Confirmed Bet to Ledger</button>
+    </form>
   </dialog>
 
   <dialog id="manualBetDialog">
@@ -526,6 +589,7 @@
   </dialog>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-  <script src="app.js?v=90"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="app.js?v=91"></script>
 </body>
 </html>

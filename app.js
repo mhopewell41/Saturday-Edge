@@ -3,7 +3,7 @@ const PERFORMANCE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions
 const LIVE_EDGE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/Saturday-edge-live";
 const BET_CHECK_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/Saturday-edge-bet-check";
 const BETMGM_URL = "https://sports.betmgm.com/";
-const SETTINGS_VERSION = 17;
+const SETTINGS_VERSION = 18;
 const LIVE_AUTO_REFRESH_MS = 2 * 60 * 1000;
 const DEFAULT_SUPABASE_URL = "https://ahskdtpxsjqasbpbvxja.supabase.co";
 const CLOUD_TABLE = "se_user_bets";
@@ -47,6 +47,11 @@ let currentBetGame = null;
 let currentBetKind = "PREGAME";
 let currentEditingBetId = null;
 let currentLedgerSportFilter = "ALL";
+let currentBetSlipFile = null;
+let currentBetSlipObjectUrl = null;
+let betSlipOcrBusy = false;
+const SHARE_CACHE = "saturday-edge-share-v1";
+const SHARED_BET_SLIP_KEY = "./shared-bet-slip";
 
 const EDGE_SPORTS = {
   CFB:{label:"College Football",short:"CFB",icon:"🏈",grader:true},
@@ -938,6 +943,253 @@ function syncManualBetKind(){
 window.openManualBet=openManualBet;
 
 
+function normalizeOcrText(text){
+  return String(text||"")
+    .replace(/[“”]/g,'"')
+    .replace(/[’]/g,"'")
+    .replace(/\r/g,"\n")
+    .replace(/[ \t]+/g," ")
+    .replace(/\n{3,}/g,"\n\n")
+    .trim();
+}
+function ocrLines(text){
+  return normalizeOcrText(text).split("\n").map(x=>x.trim()).filter(x=>x.length>1);
+}
+function detectSportsbook(text){
+  const t=String(text||"");
+  const books=[
+    [/bet\s*mgm|betmgm/i,"BetMGM"],
+    [/draft\s*kings|draftkings/i,"DraftKings"],
+    [/fan\s*duel|fanduel/i,"FanDuel"],
+    [/caesars/i,"Caesars"],
+    [/espn\s*bet/i,"ESPN BET"],
+    [/fanatics/i,"Fanatics Sportsbook"]
+  ];
+  return books.find(([rx])=>rx.test(t))?.[1]||"";
+}
+function detectBetSport(text){
+  const t=String(text||"").toLowerCase();
+  if(/\bncaab\b|college basketball|men'?s college basketball|women'?s college basketball|march madness/.test(t)) return "CBB";
+  if(/\bnba\b|national basketball association/.test(t)) return "NBA";
+  if(/\bnfl\b|national football league/.test(t)) return "NFL";
+  if(/\bncaaf\b|\bcfb\b|college football|ncaa football/.test(t)) return "CFB";
+  return "CFB";
+}
+function detectBetKind(text){
+  return /\blive\b|in[\s-]?game|live bet|q[1-4]\b|quarter\s*[1-4]|halftime|2nd half|second half/i.test(String(text||"")) ? "LIVE" : "PREGAME";
+}
+function parseAmericanOdds(text){
+  const t=String(text||"");
+  const labeled=t.match(/(?:odds|price|american odds)[^\n+\-]{0,14}([+\-]\d{3,4})/i);
+  if(labeled) return Number(labeled[1]);
+  const all=[...t.matchAll(/(?:^|[\s(])([+\-]\d{3,4})(?=$|[\s)])/g)]
+    .map(m=>Number(m[1])).filter(n=>Math.abs(n)>=100&&Math.abs(n)<=5000);
+  return all.length?all[0]:null;
+}
+function parseStakeAmount(text){
+  const t=String(text||"");
+  const patterns=[
+    /(?:stake|wager(?:ed)?|risk|bet amount|amount wagered)\s*:?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /\$\s*([\d,]+(?:\.\d{2}))\s*(?:stake|wager|risk)/i
+  ];
+  for(const rx of patterns){
+    const m=t.match(rx);
+    if(m){const n=Number(m[1].replace(/,/g,""));if(Number.isFinite(n))return n;}
+  }
+  return null;
+}
+function cleanTeamName(v){
+  return String(v||"")
+    .replace(/\b(?:spread|point spread|moneyline|total|alternate spread|alt spread)\b/ig," ")
+    .replace(/[|•]+/g," ")
+    .replace(/\s{2,}/g," ")
+    .replace(/^[\s\-:]+|[\s\-:]+$/g,"")
+    .trim();
+}
+function plausibleTeamName(v){
+  const s=cleanTeamName(v);
+  if(s.length<2||s.length>55||!/[A-Za-z]/.test(s)) return false;
+  if(/\$|odds|stake|wager|payout|potential|receipt|ticket|placed|selection|straight bet|single bet|spread|moneyline|total|sportsbook|account|cash out|open bets|settled/i.test(s)) return false;
+  if(/^\d/.test(s)) return false;
+  return true;
+}
+function parseSpreadSelection(lines,text){
+  const candidates=[];
+  const patterns=[
+    /^(.{2,55}?)\s+([+\-]\d{1,2}(?:\.\d+)?)\s*(?:\(?([+\-]\d{3,4})\)?)?\s*$/,
+    /^(.{2,55}?)\s+(?:spread\s*)?([+\-]\d{1,2}(?:\.\d+)?)\b/i
+  ];
+  lines.forEach((line,idx)=>{
+    for(const rx of patterns){
+      const m=line.match(rx);
+      if(!m)continue;
+      const team=cleanTeamName(m[1]), spread=Number(m[2]);
+      if(!plausibleTeamName(team)||!Number.isFinite(spread)||Math.abs(spread)>70)continue;
+      const price=m[3]?Number(m[3]):null;
+      candidates.push({team,line:spread,price:Number.isFinite(price)?price:null,idx,raw:line});
+      break;
+    }
+  });
+  if(candidates.length){
+    const preferred=candidates.find(x=>/\bspread\b/i.test(x.raw))||candidates[0];
+    return preferred;
+  }
+  const inline=String(text||"").match(/([A-Za-z][A-Za-z .&'’\-]{2,45}?)\s+([+\-]\d{1,2}(?:\.\d+)?)\s+(?:[+\-]\d{3,4})/);
+  if(inline){
+    const team=cleanTeamName(inline[1]), spread=Number(inline[2]);
+    if(plausibleTeamName(team)&&Number.isFinite(spread)&&Math.abs(spread)<=70) return {team,line:spread,price:null,idx:-1,raw:inline[0]};
+  }
+  return null;
+}
+function parseMatchup(lines,selection){
+  for(const line of lines){
+    const m=line.match(/^(.{2,55}?)\s+(?:@|at|vs\.?|versus|v\.)\s+(.{2,55}?)$/i);
+    if(m){
+      const a=cleanTeamName(m[1]),h=cleanTeamName(m[2]);
+      if(plausibleTeamName(a)&&plausibleTeamName(h)) return {away:a,home:h};
+    }
+  }
+  if(selection&&selection.idx>=0){
+    const nearby=[];
+    for(let d=-4;d<=4;d++){
+      if(!d)continue;
+      const v=lines[selection.idx+d];
+      if(v&&plausibleTeamName(v)&&!v.includes(selection.team)) nearby.push(cleanTeamName(v));
+    }
+    if(nearby.length){
+      const opp=nearby[0];
+      return {away:selection.team,home:opp};
+    }
+  }
+  return {away:"",home:""};
+}
+function parseTicketDateTime(lines){
+  const now=new Date();
+  const month=/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b/i;
+  const dateNum=/\b\d{1,2}[\/\-]\d{1,2}[\/\-](?:\d{2}|\d{4})\b/;
+  const time=/\b\d{1,2}:\d{2}\s*(?:AM|PM)\b/i;
+  for(let i=0;i<lines.length;i++){
+    const parts=[lines[i],lines[i+1]].filter(Boolean);
+    const joined=parts.join(" ");
+    if((month.test(joined)||dateNum.test(joined))&&time.test(joined)){
+      let candidate=joined.replace(/\bat\b/i," ");
+      if(month.test(candidate)&&!/\b20\d{2}\b/.test(candidate)) candidate=`${candidate} ${now.getFullYear()}`;
+      const d=new Date(candidate);
+      if(!Number.isNaN(d.getTime())) return isoToLocalDateTimeValue(d.toISOString());
+    }
+  }
+  return "";
+}
+function parseBetSlipText(text){
+  const clean=normalizeOcrText(text),lines=ocrLines(clean);
+  const selection=parseSpreadSelection(lines,clean);
+  const matchup=parseMatchup(lines,selection);
+  const sportsbook=detectSportsbook(clean);
+  const price=selection?.price??parseAmericanOdds(clean);
+  const stake=parseStakeAmount(clean);
+  const kickoff=parseTicketDateTime(lines);
+  const confidence=[
+    selection?.team?1:0,
+    Number.isFinite(selection?.line)?1:0,
+    Number.isFinite(price)?1:0,
+    sportsbook?0.5:0,
+    matchup.away&&matchup.home?1:0,
+    kickoff?0.5:0
+  ].reduce((a,b)=>a+b,0);
+  return {
+    sport:detectBetSport(clean),
+    kind:detectBetKind(clean),
+    sportsbook,
+    away:matchup.away||"",
+    home:matchup.home||"",
+    team:selection?.team||"",
+    line:Number.isFinite(selection?.line)?selection.line:null,
+    price:Number.isFinite(price)?price:-110,
+    stake:Number.isFinite(stake)?stake:null,
+    kickoff,
+    rawText:clean,
+    confidence
+  };
+}
+function clearBetSlipPreviewUrl(){
+  if(currentBetSlipObjectUrl){URL.revokeObjectURL(currentBetSlipObjectUrl);currentBetSlipObjectUrl=null;}
+}
+function fillBetSlipImport(parsed){
+  $("importSport").value=normalizeSport(parsed.sport);
+  $("importBetKind").value=parsed.kind==="LIVE"?"LIVE":"PREGAME";
+  $("importAway").value=parsed.away||"";
+  $("importHome").value=parsed.home||"";
+  $("importTeam").value=parsed.team||"";
+  $("importLine").value=Number.isFinite(parsed.line)?parsed.line:"";
+  $("importPrice").value=Number.isFinite(parsed.price)?parsed.price:-110;
+  $("importStake").value=Number.isFinite(parsed.stake)?parsed.stake:"";
+  $("importUnits").value="1";
+  $("importKickoff").value=parsed.kickoff||localDateTimeValue();
+  $("importSportsbook").value=parsed.sportsbook||"";
+  $("importNotes").value="";
+  $("betSlipRawText").value=parsed.rawText||"";
+  const pct=Math.round(Math.min(1,parsed.confidence/5)*100);
+  $("betSlipConfidence").textContent=pct>=70
+    ?`Edge found most of the ticket (${pct}% field confidence). Confirm the matchup and kickoff before saving.`
+    :`Edge found part of the ticket (${pct}% field confidence). Fill any missing fields and confirm everything before saving.`;
+}
+async function recognizeBetSlip(file){
+  if(!file||betSlipOcrBusy)return;
+  currentBetSlipFile=file;betSlipOcrBusy=true;
+  clearBetSlipPreviewUrl();
+  currentBetSlipObjectUrl=URL.createObjectURL(file);
+  $("betSlipPreview").src=currentBetSlipObjectUrl;
+  $("betSlipOcrTitle").textContent="Reading bet slip…";
+  $("betSlipOcrStatus").textContent="OCR is running on this device.";
+  $("betSlipOcrProgress").style.width="4%";
+  $("betSlipRawText").value="";
+  $("betSlipImportDialog").showModal();
+  try{
+    if(!globalThis.Tesseract?.createWorker) throw new Error("OCR engine did not load. Check your internet connection and try again.");
+    const worker=await Tesseract.createWorker("eng",1,{
+      logger:m=>{
+        if(m.status)$("betSlipOcrStatus").textContent=m.status.replace(/_/g," ");
+        if(Number.isFinite(m.progress))$("betSlipOcrProgress").style.width=`${Math.max(4,Math.round(m.progress*100))}%`;
+      }
+    });
+    const result=await worker.recognize(file);
+    await worker.terminate();
+    const parsed=parseBetSlipText(result?.data?.text||"");
+    fillBetSlipImport(parsed);
+    $("betSlipOcrTitle").textContent="Ticket read complete";
+    $("betSlipOcrStatus").textContent="Review every field against the screenshot.";
+    $("betSlipOcrProgress").style.width="100%";
+  }catch(err){
+    $("betSlipOcrTitle").textContent="Could not read ticket automatically";
+    $("betSlipOcrStatus").textContent=err.message||String(err);
+    $("betSlipConfidence").textContent="You can still enter the ticket manually from this confirmation screen.";
+    $("betSlipOcrProgress").style.width="0%";
+  }finally{betSlipOcrBusy=false;}
+}
+async function openBetSlipFilePicker(){
+  $("betSlipFileInput").click();
+}
+async function maybeOpenSharedBetSlip(){
+  const params=new URLSearchParams(location.search);
+  if(params.get("importBetSlip")!=="1"||!("caches" in window))return;
+  try{
+    const cache=await caches.open(SHARE_CACHE);
+    const response=await cache.match(SHARED_BET_SLIP_KEY);
+    if(response){
+      const blob=await response.blob();
+      const type=response.headers.get("Content-Type")||blob.type||"image/png";
+      const file=new File([blob],"shared-bet-slip."+((type.split("/")[1]||"png").replace("jpeg","jpg")),{type});
+      await cache.delete(SHARED_BET_SLIP_KEY);
+      history.replaceState(null,"",location.pathname);
+      recognizeBetSlip(file);
+    }
+  }catch(err){
+    console.warn("Shared bet slip could not be opened",err);
+  }
+}
+
+
+
 function cloudConfigured(){
   return Boolean(settings.supabaseUrl && settings.supabaseKey && globalThis.supabase?.createClient);
 }
@@ -1213,6 +1465,39 @@ function importBetsFile(file){
 }
 function openBetMgm(){window.open(BETMGM_URL,"_blank","noopener,noreferrer");} window.openBetMgm=openBetMgm;
 
+$("betSlipImportForm").addEventListener("submit",e=>{
+  e.preventDefault();
+  const sport=normalizeSport($("importSport").value);
+  const kind=$("importBetKind").value==="LIVE"?"LIVE":"PREGAME";
+  const away=$("importAway").value.trim(),home=$("importHome").value.trim(),team=$("importTeam").value.trim();
+  const line=Number($("importLine").value),price=Number($("importPrice").value),units=Number($("importUnits").value);
+  const stake=$("importStake").value===""?null:Number($("importStake").value);
+  const kickoffDate=new Date($("importKickoff").value);
+  if(!away||!home||!team||!Number.isFinite(line)||!Number.isFinite(price)||!Number.isFinite(units)||Number.isNaN(kickoffDate.getTime())){
+    $("betSlipConfidence").textContent="Fill the matchup, bet side, line, odds, units, and game date/time before saving.";
+    return;
+  }
+  const kickoff=kickoffDate.toISOString(),sportsbook=$("importSportsbook").value.trim();
+  const bets=getBets();
+  bets.unshift({
+    id:makeBetId(),sport,market:"SPREAD",kind,result:"PENDING",manualEntry:true,
+    importSource:"BET_SLIP_OCR",sportsbook:sportsbook||null,createdAt:new Date().toISOString(),
+    gameId:manualGameId(away,home,kickoff,sport),cfbdGameId:null,season:kickoffDate.getFullYear(),week:null,kickoff,
+    away,home,team,line,price,units,stake,
+    edge:null,projectedLine:null,classification:"IMPORTED",
+    gameState:kind==="LIVE"?"LIVE • imported from bet slip":null,
+    scoreAtBet:null,
+    notes:$("importNotes").value.trim()
+  });
+  saveBets(bets);
+  $("betCheckStatus").textContent=sport==="CFB"
+    ?`📸 Imported ${sportsbook||"sportsbook"} CFB wager. Check Results can grade it after the game is final.`
+    :`📸 Imported ${sportsbook||"sportsbook"} ${sport} wager and synced it to your cloud ledger.`;
+  $("betSlipImportDialog").close();
+  clearBetSlipPreviewUrl();
+  currentBetSlipFile=null;
+});
+
 $("manualBetForm").addEventListener("submit",e=>{
   e.preventDefault();
   const sport=normalizeSport($("manualSport").value);
@@ -1306,6 +1591,7 @@ $("saveSettingsBtn").addEventListener("click",async()=>{
   localStorage.setItem("se-settings",JSON.stringify(settings));
   $("settingsDialog").close();
   await initCloudClient();
+  setTimeout(()=>maybeOpenSharedBetSlip(),350);
   await loadGames();
   await loadPerformance();
   if(activeView==="live") await loadLiveGames();
@@ -1362,6 +1648,9 @@ $("betDialogClose").addEventListener("click",()=>$("betDialog").close());
 $("manualBetClose").addEventListener("click",()=>$("manualBetDialog").close());
 $("editBetClose").addEventListener("click",()=>$("editBetDialog").close());
 $("editBetKind").addEventListener("change",syncEditBetKind);
+$("importBetSlipBtn").addEventListener("click",openBetSlipFilePicker);
+$("betSlipFileInput").addEventListener("change",e=>{const file=e.target.files?.[0];if(file)recognizeBetSlip(file);e.target.value="";});
+$("betSlipImportClose").addEventListener("click",()=>{$("betSlipImportDialog").close();clearBetSlipPreviewUrl();});
 $("manualBetBtn").addEventListener("click",openManualBet);
 $("manualBetKind").addEventListener("change",syncManualBetKind);
 $("manualSport").addEventListener("change",updateManualSportHint);
@@ -1408,7 +1697,7 @@ $("clearBetsBtn").addEventListener("click",async()=>{if(confirm(cloudUser?"Clear
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=90").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=91").catch(()=>{}));}
 (async()=>{
   renderLiveBets();
   renderBetMgmPerformance();
