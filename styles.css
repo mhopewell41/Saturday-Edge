@@ -204,3 +204,11 @@ dialog{width:min(720px,calc(100vw - 28px));border:1px solid #365344;background:#
   .bet-slip-preview-wrap{grid-template-columns:90px 1fr}.bet-slip-preview{width:90px;height:125px}
   .smart-import-grid,.smart-import-grid.three{grid-template-columns:1fr}
 }
+
+
+/* v0.9.3 International Basketball + Settle Bet */
+.sport-pill.intl{color:#d9f6ff;border-color:#3f7180;background:rgba(83,180,205,.08)}
+.small-btn.settle{color:#dfffea;border-color:#3c7a53;background:rgba(84,240,143,.07)}
+.small-btn.settle:hover{background:rgba(84,240,143,.14)}
+.settle-rule-note{padding:10px 12px;border:1px solid #4c654f;border-radius:11px;color:#cde7d3;background:rgba(84,240,143,.035);font-size:10px;line-height:1.45}
+@media(max-width:620px){.ledger-sport-filter{grid-template-columns:repeat(2,minmax(0,1fr))}}

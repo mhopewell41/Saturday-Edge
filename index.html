@@ -7,7 +7,7 @@
   <title>Saturday Edge</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=92" />
+  <link rel="stylesheet" href="styles.css?v=93" />
 </head>
 <body>
   <div class="app-shell">
@@ -27,7 +27,7 @@
 
     <section class="hero">
       <div>
-        <div class="eyebrow">BETMGM • SPREADS • APP v0.9.2 • SMART SPORT DETECTION • CFB MODEL v0.5 • MULTI-SPORT LEDGER v0.1</div>
+        <div class="eyebrow">BETMGM • SPREADS • APP v0.9.3 • INTERNATIONAL + SETTLE BET • CFB MODEL v0.5 • MULTI-SPORT LEDGER v0.2</div>
         <h2>Find the number.<br><span>Keep the receipts.</span></h2>
         <p id="statusText">Loading the live board…</p>
       </div>
@@ -248,6 +248,7 @@
         <button class="sport-filter-btn" type="button" data-ledger-sport="NFL">🏈 NFL</button>
         <button class="sport-filter-btn" type="button" data-ledger-sport="CBB">🏀 CBB</button>
         <button class="sport-filter-btn" type="button" data-ledger-sport="NBA">🏀 NBA</button>
+        <button class="sport-filter-btn" type="button" data-ledger-sport="INTL">🌍 INTL</button>
       </div>
 
       <div class="tracker-summary">
@@ -255,7 +256,7 @@
         <div><span>Units entered</span><strong id="unitsRisked">0.0u</strong></div>
         <div><span>Pending</span><strong id="pendingBetCount">0</strong></div>
       </div>
-      <div id="betCheckStatus" class="ledger-status">CFB wagers grade with the current Saturday Edge/CFBD checker. NFL, CBB, and NBA wagers stay safely tracked until their dedicated graders are added.</div>
+      <div id="betCheckStatus" class="ledger-status">CFB wagers grade automatically today. NFL, CBB, NBA, and International wagers can be settled from the final score while their automatic graders are being built.</div>
       <div id="betsTableWrap" class="table-wrap"></div>
       <div class="ledger-footer-actions"><button id="clearBetsBtn" class="btn ghost danger">Clear ledger</button></div>
     </section>
@@ -396,6 +397,9 @@
             <option value="NFL">🏈 NFL</option>
             <option value="CBB">🏀 College Basketball</option>
             <option value="NBA">🏀 NBA</option>
+          <option value="INTL">🌍 International Basketball</option>
+          <option value="INTL">🌍 International Basketball</option>
+            <option value="INTL">🌍 International Basketball</option>
           </select>
         </label>
         <label>Bet type
@@ -419,6 +423,7 @@
         <label>Units risked<input id="importUnits" type="number" min="0.1" step="0.1" value="1" required /></label>
         <label>Game date / kickoff<input id="importKickoff" type="datetime-local" required /></label>
       </div>
+      <label>League / competition<input id="importCompetition" type="text" maxlength="80" placeholder="e.g. EuroLeague, FIBA, Liga ACB" /></label>
       <label>Sportsbook<input id="importSportsbook" type="text" maxlength="40" placeholder="Detected when possible" /></label>
       <label>Notes<input id="importNotes" type="text" maxlength="160" placeholder="Optional" /></label>
       <div id="betSlipConfidence" class="smart-import-confidence">Check every field against the ticket before saving.</div>
@@ -449,6 +454,7 @@
         </select>
       </label>
       <div id="manualSportHint" class="sport-entry-hint">CFB wagers use the current automatic result checker.</div>
+      <label>League / competition<input id="manualCompetition" type="text" maxlength="80" placeholder="Optional • e.g. NFL, EuroLeague, Liga ACB" /></label>
       <label>Bet type
         <select id="manualBetKind" required>
           <option value="PREGAME">Pregame</option>
@@ -499,6 +505,7 @@
           <option value="NBA">🏀 NBA</option>
         </select>
       </label>
+      <label>League / competition<input id="editCompetition" type="text" maxlength="80" placeholder="Optional • e.g. EuroLeague, Liga ACB" /></label>
       <label>Bet type
         <select id="editBetKind" required>
           <option value="PREGAME">Pregame</option>
@@ -527,6 +534,27 @@
       </div>
       <label>Notes<input id="editNotes" type="text" maxlength="160" placeholder="Optional ticket note" /></label>
       <button class="btn primary full" type="submit">Save Changes</button>
+    </form>
+  </dialog>
+
+
+  <dialog id="settleBetDialog">
+    <div class="dialog-head">
+      <div>
+        <div class="eyebrow">TEMPORARY MULTI-SPORT GRADER</div>
+        <h2>✅ Settle Bet from Final Score</h2>
+      </div>
+      <button id="settleBetClose" class="icon-btn" type="button">✕</button>
+    </div>
+    <form id="settleBetForm" class="settings-body manual-bet-form">
+      <input id="settleBetId" type="hidden" />
+      <div id="settleBetSummary" class="manual-bet-note"></div>
+      <div class="manual-two-col">
+        <label>Away final score<input id="settleAwayScore" type="number" min="0" step="1" required /></label>
+        <label>Home final score<input id="settleHomeScore" type="number" min="0" step="1" required /></label>
+      </div>
+      <div class="settle-rule-note">Edge grades the spread from the final score and your stored line. Verify the final score before saving.</div>
+      <button class="btn primary full" type="submit">Grade This Wager</button>
     </form>
   </dialog>
 
@@ -591,6 +619,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=92"></script>
+  <script src="app.js?v=93"></script>
 </body>
 </html>

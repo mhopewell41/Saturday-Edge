@@ -57,7 +57,8 @@ const EDGE_SPORTS = {
   CFB:{label:"College Football",short:"CFB",icon:"🏈",grader:true},
   NFL:{label:"NFL",short:"NFL",icon:"🏈",grader:false},
   CBB:{label:"College Basketball",short:"CBB",icon:"🏀",grader:false},
-  NBA:{label:"NBA",short:"NBA",icon:"🏀",grader:false}
+  NBA:{label:"NBA",short:"NBA",icon:"🏀",grader:false},
+  INTL:{label:"International Basketball",short:"INTL",icon:"🌍",grader:false}
 };
 function normalizeSport(value){
   const s=String(value||"CFB").toUpperCase();
@@ -433,7 +434,7 @@ function renderLiveBets(){
   $("liveUnitsRisked").textContent=`${rows.reduce((sum,b)=>sum+Number(b.units||0),0).toFixed(1)}u`;
   if(!rows.length){$("liveBetsTableWrap").innerHTML=`<div class="empty">No in-game BetMGM wagers tracked yet. Use “+ Bet Placed” on a live card.</div>`;return;}
   $("liveBetsTableWrap").innerHTML=`<table class="bets-table"><thead><tr><th>Time</th><th>Game</th><th>State</th><th>Side</th><th>Line</th><th>Stake</th><th>Result</th><th>Net</th><th>Live edge</th><th>Actions</th></tr></thead><tbody>${rows.map(b=>`<tr>
-    <td>${new Date(b.createdAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}</td><td>${escapeHtml(b.gameState||"LIVE")}<br><small>${escapeHtml(b.scoreAtBet||"")}</small></td><td>${escapeHtml(b.team)} ${fmtLine(b.line)}<br><small>${fmtPrice(b.price)}</small></td><td>${fmtLine(b.line)}</td><td>${Number(b.stake)>0?`$${Number(b.stake).toFixed(2)}`:`${Number(b.units).toFixed(1)}u`}</td><td>${resultPill(b)}</td><td>${["WIN","LOSS","PUSH"].includes(b.result)?fmtUnits(b.unitsProfit):"—"}</td><td>${b.edge===null||b.edge===undefined?"—":`${Number(b.edge)>=0?"+":""}${Number(b.edge).toFixed(1)}`}</td><td><div class="bet-row-actions"><button class="small-btn" onclick="openEditBet('${escapeHtml(b.id)}')">Edit</button><button class="small-btn danger" onclick="deleteBet('${escapeHtml(b.id)}')">Delete</button></div></td>
+    <td>${new Date(b.createdAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}</td><td>${escapeHtml(b.gameState||"LIVE")}<br><small>${escapeHtml(b.scoreAtBet||"")}</small></td><td>${escapeHtml(b.team)} ${fmtLine(b.line)}<br><small>${fmtPrice(b.price)}</small></td><td>${fmtLine(b.line)}</td><td>${Number(b.stake)>0?`$${Number(b.stake).toFixed(2)}`:`${Number(b.units).toFixed(1)}u`}</td><td>${resultPill(b)}</td><td>${["WIN","LOSS","PUSH"].includes(b.result)?fmtUnits(b.unitsProfit):"—"}</td><td>${b.edge===null||b.edge===undefined?"—":`${Number(b.edge)>=0?"+":""}${Number(b.edge).toFixed(1)}`}</td><td><div class="bet-row-actions">${String(b.result||"PENDING").toUpperCase()==="PENDING"&&normalizeSport(b.sport)!=="CFB"?`<button class="small-btn settle" onclick="openSettleBet('${escapeHtml(b.id)}')">Settle</button>`:""}<button class="small-btn" onclick="openEditBet('${escapeHtml(b.id)}')">Edit</button><button class="small-btn danger" onclick="deleteBet('${escapeHtml(b.id)}')">Delete</button></div></td>
   </tr>`).join("")}</tbody></table>`;
 }
 
@@ -925,10 +926,11 @@ function updateManualSportHint(){
   if(!$("manualSportHint")) return;
   $("manualSportHint").textContent=s==="CFB"
     ?"CFB wagers use the current automatic result checker."
-    :`${sportMeta(s).label} wagers will sync across devices now. Automatic grading arrives with the ${sportMeta(s).short} Edge engine.`;
+    :`${sportMeta(s).label} wagers sync across devices now. Until its automatic grader is ready, use Settle after the game ends.`;
 }
 function openManualBet(){
   $("manualSport").value="CFB";
+  $("manualCompetition").value="";
   updateManualSportHint();
   $("manualBetKind").value="PREGAME";
   $("manualAway").value=""; $("manualHome").value=""; $("manualTeam").value="";
@@ -954,6 +956,17 @@ function normalizeOcrText(text){
 }
 function ocrLines(text){
   return normalizeOcrText(text).split("\n").map(x=>x.trim()).filter(x=>x.length>1);
+}
+function detectCompetition(text){
+  const t=String(text||"");
+  const leagues=[
+    [/euroleague/i,"EuroLeague"],[/eurocup/i,"EuroCup"],[/fiba/i,"FIBA"],
+    [/basketball champions league/i,"Basketball Champions League"],
+    [/liga acb|acb league/i,"Liga ACB"],[/aba league/i,"ABA League"],
+    [/greek basket league/i,"Greek Basket League"],[/turkish basketball super league|\bbsl\b/i,"Turkish BSL"],
+    [/nbl australia/i,"NBL Australia"],[/british basketball league|\bbbl\b/i,"British Basketball League"]
+  ];
+  return leagues.find(([rx])=>rx.test(t))?.[1]||"";
 }
 function detectSportsbook(text){
   const t=String(text||"");
@@ -991,6 +1004,7 @@ function containsKnownTeam(text,names){
 function detectBetSport(text){
   const t=String(text||"").toLowerCase();
 
+  if(/\beuroleague\b|\beurocup\b|\bfiba\b|basketball champions league|liga acb|acb league|lega basket|serie a basketball|aba league|greek basket league|turkish basketball super league|\bbsl\b|\bnbl australia\b|british basketball league|\bbbl\b/i.test(t)) return "INTL";
   if(/\bncaab\b|\bncaam\b|college basketball|men'?s college basketball|women'?s college basketball|march madness/.test(t)) return "CBB";
   if(/\bnba\b|national basketball association/.test(t)) return "NBA";
   if(/\bnfl\b|national football league/.test(t)) return "NFL";
@@ -1126,6 +1140,7 @@ function parseBetSlipText(text){
     sport:detectBetSport(clean),
     kind:detectBetKind(clean),
     sportsbook,
+    competition:detectCompetition(clean),
     away:matchup.away||"",
     home:matchup.home||"",
     team:selection?.team||"",
@@ -1151,6 +1166,7 @@ function fillBetSlipImport(parsed){
   $("importStake").value=Number.isFinite(parsed.stake)?parsed.stake:"";
   $("importUnits").value="1";
   $("importKickoff").value=parsed.kickoff||localDateTimeValue();
+  $("importCompetition").value=parsed.competition||"";
   $("importSportsbook").value=parsed.sportsbook||"";
   $("importNotes").value="";
   $("betSlipRawText").value=parsed.rawText||"";
@@ -1400,7 +1416,7 @@ function renderBetMgmPerformance(){
   $("personalDollars").textContent=`${all.dollarsProfit<0?"-":""}$${Math.abs(all.dollarsProfit).toFixed(2)}`;
   $("personalDollars").className=all.dollarsProfit>0?"positive":all.dollarsProfit<0?"negative":"";
   $("personalDollarsSub").textContent=all.cashCount?`$${all.dollarsRisked.toFixed(2)} graded cash risk`:`Add stake $ to track cash P/L`;
-  $("personalSplits").innerHTML=["CFB","NFL","CBB","NBA"].map(s=>splitCard(`${sportMeta(s).icon} ${sportMeta(s).short}`,betSummary(bets.filter(b=>normalizeSport(b.sport)===s)))).join("");
+  $("personalSplits").innerHTML=["CFB","NFL","CBB","NBA","INTL"].map(s=>splitCard(`${sportMeta(s).icon} ${sportMeta(s).short}`,betSummary(bets.filter(b=>normalizeSport(b.sport)===s)))).join("");
   $("pendingBetCount").textContent=all.pending;
 }
 function resultPill(b){
@@ -1414,16 +1430,48 @@ function renderBets(){
   const bets=getBets(); $("betCount").textContent=bets.length;
   $("unitsRisked").textContent=`${bets.reduce((sum,b)=>sum+Number(b.units||0),0).toFixed(1)}u`;
   const visible=currentLedgerSportFilter==="ALL"?bets:bets.filter(b=>normalizeSport(b.sport)===currentLedgerSportFilter);
-  if(!bets.length){$("betsTableWrap").innerHTML=`<div class="empty">No sportsbook wagers tracked yet. Add one from the CFB board or use Manual Bet for CFB, NFL, CBB, or NBA.</div>`;return;}
+  if(!bets.length){$("betsTableWrap").innerHTML=`<div class="empty">No sportsbook wagers tracked yet. Add one from the CFB board or use Manual Bet for CFB, NFL, CBB, NBA, or International Basketball.</div>`;return;}
   if(!visible.length){$("betsTableWrap").innerHTML=`<div class="empty">No ${escapeHtml(currentLedgerSportFilter)} wagers are in your ledger yet.</div>`;return;}
   $("betsTableWrap").innerHTML=`<table class="bets-table personal-bets-table"><thead><tr><th>Date</th><th>Sport</th><th>Type</th><th>Game</th><th>Side</th><th>Line</th><th>Odds</th><th>Stake</th><th>Result</th><th>Net</th><th>Edge</th><th>Actions</th></tr></thead><tbody>${visible.map(b=>`<tr>
-    <td>${new Date(b.createdAt).toLocaleDateString()}</td><td>${sportBadge(b.sport)}</td><td>${escapeHtml(b.kind||"PREGAME")}${b.manualEntry?`<br><small>MANUAL</small>`:""}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}</td><td>${escapeHtml(b.team)}</td><td>${fmtLine(b.line)}</td><td>${fmtPrice(b.price)}</td><td>${Number(b.stake)>0?`$${Number(b.stake).toFixed(2)}`:"—"}</td><td>${resultPill(b)}</td><td>${["WIN","LOSS","PUSH"].includes(b.result)?`${fmtUnits(b.unitsProfit)}${Number.isFinite(Number(b.dollarsProfit))?`<br><small>${Number(b.dollarsProfit)<0?"-":""}$${Math.abs(Number(b.dollarsProfit)).toFixed(2)}</small>`:""}`:"—"}</td><td>${b.edge===null||b.edge===undefined?"—":`${Number(b.edge)>=0?"+":""}${Number(b.edge).toFixed(1)}`}</td><td><div class="bet-row-actions"><button class="small-btn" onclick="openEditBet('${escapeHtml(b.id)}')">Edit</button><button class="small-btn danger" onclick="deleteBet('${escapeHtml(b.id)}')">Delete</button></div></td>
+    <td>${new Date(b.createdAt).toLocaleDateString()}</td><td>${sportBadge(b.sport)}</td><td>${escapeHtml(b.kind||"PREGAME")}${b.manualEntry?`<br><small>MANUAL</small>`:""}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}${b.competition?`<br><small>${escapeHtml(b.competition)}</small>`:""}</td><td>${escapeHtml(b.team)}</td><td>${fmtLine(b.line)}</td><td>${fmtPrice(b.price)}</td><td>${Number(b.stake)>0?`$${Number(b.stake).toFixed(2)}`:"—"}</td><td>${resultPill(b)}</td><td>${["WIN","LOSS","PUSH"].includes(b.result)?`${fmtUnits(b.unitsProfit)}${Number.isFinite(Number(b.dollarsProfit))?`<br><small>${Number(b.dollarsProfit)<0?"-":""}$${Math.abs(Number(b.dollarsProfit)).toFixed(2)}</small>`:""}`:"—"}</td><td>${b.edge===null||b.edge===undefined?"—":`${Number(b.edge)>=0?"+":""}${Number(b.edge).toFixed(1)}`}</td><td><div class="bet-row-actions"><button class="small-btn" onclick="openEditBet('${escapeHtml(b.id)}')">Edit</button><button class="small-btn danger" onclick="deleteBet('${escapeHtml(b.id)}')">Delete</button></div></td>
   </tr>`).join("")}</tbody></table>`;
 }
 function clearBetGrade(b){
   b.result="PENDING";
   for(const key of ["atsMargin","unitsProfit","dollarsProfit","finalScore","closingLine","clv","gradedAt","gradeSource"]) delete b[key];
 }
+function americanWinProfit(risk,price){
+  const r=Number(risk),p=Number(price);
+  if(!Number.isFinite(r)||r<=0||!Number.isFinite(p)||p===0)return 0;
+  return p>0 ? r*(p/100) : r*(100/Math.abs(p));
+}
+function openSettleBet(id){
+  const b=getBets().find(x=>String(x.id)===String(id)); if(!b)return;
+  $("settleBetId").value=b.id;
+  $("settleAwayScore").value="";
+  $("settleHomeScore").value="";
+  $("settleBetSummary").innerHTML=`${sportBadge(b.sport)} <strong>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}</strong><br>${escapeHtml(b.team)} ${fmtLine(b.line)} • ${fmtPrice(b.price)}${b.competition?` • ${escapeHtml(b.competition)}`:""}`;
+  $("settleBetDialog").showModal();
+}
+window.openSettleBet=openSettleBet;
+
+function gradeSpreadFromFinalScore(b,awayScore,homeScore){
+  const away=Number(awayScore),home=Number(homeScore),line=Number(b.line);
+  if(!Number.isFinite(away)||!Number.isFinite(home)||!Number.isFinite(line)) throw new Error("Enter valid final scores.");
+  let teamMargin=null;
+  if(teamNamesMatch(b.team,b.away)) teamMargin=away-home;
+  else if(teamNamesMatch(b.team,b.home)) teamMargin=home-away;
+  else throw new Error("Bet side does not match the stored away/home team. Edit the wager first.");
+  const atsMargin=teamMargin+line;
+  const result=Math.abs(atsMargin)<0.0001?"PUSH":atsMargin>0?"WIN":"LOSS";
+  const units=Number(b.units)||0,stake=Number(b.stake);
+  const unitsProfit=result==="WIN"?americanWinProfit(units,b.price):result==="LOSS"?-units:0;
+  const dollarsProfit=Number.isFinite(stake)&&stake>0
+    ?(result==="WIN"?americanWinProfit(stake,b.price):result==="LOSS"?-stake:0)
+    :null;
+  return {result,atsMargin,unitsProfit,dollarsProfit};
+}
+
 function deleteBet(id){
   const bets=getBets(), b=bets.find(x=>String(x.id)===String(id));
   if(!b)return;
@@ -1441,7 +1489,7 @@ function syncEditBetKind(){
 function openEditBet(id){
   const b=getBets().find(x=>String(x.id)===String(id)); if(!b)return;
   currentEditingBetId=String(b.id);
-  $("editBetId").value=b.id; $("editSport").value=normalizeSport(b.sport); $("editBetKind").value=b.kind==="LIVE"?"LIVE":"PREGAME";
+  $("editBetId").value=b.id; $("editSport").value=normalizeSport(b.sport); $("editCompetition").value=b.competition||""; $("editBetKind").value=b.kind==="LIVE"?"LIVE":"PREGAME";
   $("editAway").value=b.away||""; $("editHome").value=b.home||""; $("editTeam").value=b.team||"";
   $("editLine").value=Number.isFinite(Number(b.line))?Number(b.line):""; $("editPrice").value=Number.isFinite(Number(b.price))?Number(b.price):-110;
   $("editUnits").value=Number.isFinite(Number(b.units))?Number(b.units):1; $("editStake").value=Number.isFinite(Number(b.stake))&&Number(b.stake)>0?Number(b.stake):"";
@@ -1456,7 +1504,7 @@ async function checkBetResults(){
   const cfbBets=bets.filter(b=>normalizeSport(b.sport)==="CFB");
   const futureSportCount=bets.length-cfbBets.length;
   if(!cfbBets.length){
-    status.textContent=`Your ${futureSportCount} NFL/CBB/NBA wager${futureSportCount===1?" is":"s are"} safely tracked. Their automatic graders arrive with those Edge engines.`;
+    status.textContent=`Your ${futureSportCount} NFL/CBB/NBA/INTL wager${futureSportCount===1?" is":"s are"} safely tracked. Their automatic graders arrive with those Edge engines.`;
     return;
   }
   btn.disabled=true; status.textContent=`Checking ${cfbBets.length} CFB wager${cfbBets.length===1?"":"s"}…`;
@@ -1474,7 +1522,7 @@ async function checkBetResults(){
       b.result=r.result; b.atsMargin=r.atsMargin; b.unitsProfit=r.unitsProfit; b.dollarsProfit=r.dollarsProfit; b.finalScore=r.finalScore; b.closingLine=r.closingLine; b.clv=r.clv; b.gradedAt=r.gradedAt; b.gradeSource=r.source;
     });
     saveBets(bets);
-    status.textContent=`CFB checker: ${data.checked||cfbBets.length} checked • ${data.graded||0} completed • ${data.pending||0} pending${newly?` • ${newly} newly graded`:""}${futureSportCount?` • ${futureSportCount} NFL/CBB/NBA tracked separately`:""}.`;
+    status.textContent=`CFB checker: ${data.checked||cfbBets.length} checked • ${data.graded||0} completed • ${data.pending||0} pending${newly?` • ${newly} newly graded`:""}${futureSportCount?` • ${futureSportCount} NFL/CBB/NBA/INTL tracked separately`:""}.`;
   }catch(e){status.textContent=`⚠ ${e.message||e}`;}
   finally{btn.disabled=false;}
 }
@@ -1509,11 +1557,11 @@ $("betSlipImportForm").addEventListener("submit",e=>{
     $("betSlipConfidence").textContent="Fill the matchup, bet side, line, odds, units, and game date/time before saving.";
     return;
   }
-  const kickoff=kickoffDate.toISOString(),sportsbook=$("importSportsbook").value.trim();
+  const kickoff=kickoffDate.toISOString(),sportsbook=$("importSportsbook").value.trim(),competition=$("importCompetition").value.trim();
   const bets=getBets();
   bets.unshift({
     id:makeBetId(),sport,market:"SPREAD",kind,result:"PENDING",manualEntry:true,
-    importSource:"BET_SLIP_OCR",sportsbook:sportsbook||null,createdAt:new Date().toISOString(),
+    importSource:"BET_SLIP_OCR",sportsbook:sportsbook||null,competition:competition||null,createdAt:new Date().toISOString(),
     gameId:manualGameId(away,home,kickoff,sport),cfbdGameId:null,season:kickoffDate.getFullYear(),week:null,kickoff,
     away,home,team,line,price,units,stake,
     edge:null,projectedLine:null,classification:"IMPORTED",
@@ -1533,6 +1581,7 @@ $("betSlipImportForm").addEventListener("submit",e=>{
 $("manualBetForm").addEventListener("submit",e=>{
   e.preventDefault();
   const sport=normalizeSport($("manualSport").value);
+  const competition=$("manualCompetition").value.trim();
   const kind=$("manualBetKind").value==="LIVE"?"LIVE":"PREGAME";
   const away=$("manualAway").value.trim(), home=$("manualHome").value.trim(), team=$("manualTeam").value.trim();
   const line=Number($("manualLine").value), price=Number($("manualPrice").value), units=Number($("manualUnits").value);
@@ -1547,7 +1596,7 @@ $("manualBetForm").addEventListener("submit",e=>{
   const season=kickoffDate.getFullYear();
   const bets=getBets();
   bets.unshift({
-    id:makeBetId(),sport,market:"SPREAD",kind,result:"PENDING",manualEntry:true,createdAt:new Date().toISOString(),
+    id:makeBetId(),sport,competition:competition||null,market:"SPREAD",kind,result:"PENDING",manualEntry:true,createdAt:new Date().toISOString(),
     gameId:manualGameId(away,home,kickoff,sport),cfbdGameId:null,season,week:null,kickoff,
     away,home,team,line,price,units,stake,
     edge:null,projectedLine:null,classification:"MANUAL",
@@ -1560,19 +1609,43 @@ $("manualBetForm").addEventListener("submit",e=>{
   $("manualBetDialog").close();
 });
 
+
+$("settleBetClose").addEventListener("click",()=>$("settleBetDialog").close());
+$("settleBetForm").addEventListener("submit",e=>{
+  e.preventDefault();
+  const id=$("settleBetId").value,bets=getBets(),idx=bets.findIndex(b=>String(b.id)===String(id));
+  if(idx<0){alert("That wager could not be found.");return;}
+  const b=bets[idx],awayScore=Number($("settleAwayScore").value),homeScore=Number($("settleHomeScore").value);
+  try{
+    const grade=gradeSpreadFromFinalScore(b,awayScore,homeScore);
+    b.result=grade.result;
+    b.atsMargin=grade.atsMargin;
+    b.unitsProfit=grade.unitsProfit;
+    if(grade.dollarsProfit===null) delete b.dollarsProfit; else b.dollarsProfit=grade.dollarsProfit;
+    b.finalScore=`${b.away} ${awayScore} - ${b.home} ${homeScore}`;
+    b.gradedAt=new Date().toISOString();
+    b.gradeSource="MANUAL_FINAL_SCORE";
+    b.updatedAt=b.gradedAt;
+    bets[idx]=b;
+    saveBets(bets);
+    $("betCheckStatus").textContent=`${sportMeta(b.sport).short} wager settled from the final score: ${grade.result}.`;
+    $("settleBetDialog").close();
+  }catch(err){alert(err.message||String(err));}
+});
+
 $("editBetForm").addEventListener("submit",e=>{
   e.preventDefault();
   const id=$("editBetId").value||currentEditingBetId, bets=getBets(), idx=bets.findIndex(b=>String(b.id)===String(id));
   if(idx<0){alert("That wager could not be found.");return;}
   const b=bets[idx], old={sport:normalizeSport(b.sport),kind:b.kind,away:b.away,home:b.home,team:b.team,line:Number(b.line),price:Number(b.price),units:Number(b.units),stake:b.stake===null||b.stake===undefined?null:Number(b.stake),kickoff:b.kickoff};
-  const sport=normalizeSport($("editSport").value), kind=$("editBetKind").value==="LIVE"?"LIVE":"PREGAME", away=$("editAway").value.trim(), home=$("editHome").value.trim(), team=$("editTeam").value.trim();
+  const sport=normalizeSport($("editSport").value), competition=$("editCompetition").value.trim(), kind=$("editBetKind").value==="LIVE"?"LIVE":"PREGAME", away=$("editAway").value.trim(), home=$("editHome").value.trim(), team=$("editTeam").value.trim();
   const line=Number($("editLine").value), price=Number($("editPrice").value), units=Number($("editUnits").value), stake=$("editStake").value===""?null:Number($("editStake").value);
   const kickoffDate=new Date($("editKickoff").value);
   if(!away||!home||!team||!Number.isFinite(line)||!Number.isFinite(price)||!Number.isFinite(units)||Number.isNaN(kickoffDate.getTime())){alert("Please enter a valid game, side, line, price, units, and kickoff time.");return;}
   const kickoff=kickoffDate.toISOString();
   const criticalChanged=old.sport!==sport||old.kind!==kind||old.away!==away||old.home!==home||old.team!==team||old.line!==line||old.price!==price||old.units!==units||old.stake!==stake||!sameKickoffMinute(old.kickoff,kickoff);
   const identityChanged=old.sport!==sport||old.away!==away||old.home!==home||!sameKickoffMinute(old.kickoff,kickoff);
-  Object.assign(b,{sport,market:b.market||"SPREAD",kind,away,home,team,line,price,units,stake,kickoff,season:kickoffDate.getFullYear(),notes:$("editNotes").value.trim(),gameState:kind==="LIVE"?($("editGameState").value.trim()||b.gameState||"LIVE • edited"):null,scoreAtBet:kind==="LIVE"?($("editScoreAtBet").value.trim()||null):null,editedAt:new Date().toISOString()});
+  Object.assign(b,{sport,competition:competition||null,market:b.market||"SPREAD",kind,away,home,team,line,price,units,stake,kickoff,season:kickoffDate.getFullYear(),notes:$("editNotes").value.trim(),gameState:kind==="LIVE"?($("editGameState").value.trim()||b.gameState||"LIVE • edited"):null,scoreAtBet:kind==="LIVE"?($("editScoreAtBet").value.trim()||null):null,editedAt:new Date().toISOString()});
   if(identityChanged){b.gameId=manualGameId(away,home,kickoff,sport);b.cfbdGameId=null;b.week=null;b.manualEntry=true;}
   if(identityChanged||old.team!==team){b.edge=null;b.edgeScore=null;b.projectedLine=null;b.classification="EDITED";b.consensusLine=null;b.betmgmVsConsensus=null;b.matchedSystems=[];}
   if(criticalChanged)clearBetGrade(b);
@@ -1729,7 +1802,7 @@ $("clearBetsBtn").addEventListener("click",async()=>{if(confirm(cloudUser?"Clear
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=92").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=93").catch(()=>{}));}
 (async()=>{
   renderLiveBets();
   renderBetMgmPerformance();
