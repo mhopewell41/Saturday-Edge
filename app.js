@@ -1433,7 +1433,7 @@ function renderBets(){
   if(!bets.length){$("betsTableWrap").innerHTML=`<div class="empty">No sportsbook wagers tracked yet. Add one from the CFB board or use Manual Bet for CFB, NFL, CBB, NBA, or International Basketball.</div>`;return;}
   if(!visible.length){$("betsTableWrap").innerHTML=`<div class="empty">No ${escapeHtml(currentLedgerSportFilter)} wagers are in your ledger yet.</div>`;return;}
   $("betsTableWrap").innerHTML=`<table class="bets-table personal-bets-table"><thead><tr><th>Date</th><th>Sport</th><th>Type</th><th>Game</th><th>Side</th><th>Line</th><th>Odds</th><th>Stake</th><th>Result</th><th>Net</th><th>Edge</th><th>Actions</th></tr></thead><tbody>${visible.map(b=>`<tr>
-    <td>${new Date(b.createdAt).toLocaleDateString()}</td><td>${sportBadge(b.sport)}</td><td>${escapeHtml(b.kind||"PREGAME")}${b.manualEntry?`<br><small>MANUAL</small>`:""}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}${b.competition?`<br><small>${escapeHtml(b.competition)}</small>`:""}</td><td>${escapeHtml(b.team)}</td><td>${fmtLine(b.line)}</td><td>${fmtPrice(b.price)}</td><td>${Number(b.stake)>0?`$${Number(b.stake).toFixed(2)}`:"—"}</td><td>${resultPill(b)}</td><td>${["WIN","LOSS","PUSH"].includes(b.result)?`${fmtUnits(b.unitsProfit)}${Number.isFinite(Number(b.dollarsProfit))?`<br><small>${Number(b.dollarsProfit)<0?"-":""}$${Math.abs(Number(b.dollarsProfit)).toFixed(2)}</small>`:""}`:"—"}</td><td>${b.edge===null||b.edge===undefined?"—":`${Number(b.edge)>=0?"+":""}${Number(b.edge).toFixed(1)}`}</td><td><div class="bet-row-actions"><button class="small-btn" onclick="openEditBet('${escapeHtml(b.id)}')">Edit</button><button class="small-btn danger" onclick="deleteBet('${escapeHtml(b.id)}')">Delete</button></div></td>
+    <td>${new Date(b.createdAt).toLocaleDateString()}</td><td>${sportBadge(b.sport)}</td><td>${escapeHtml(b.kind||"PREGAME")}${b.manualEntry?`<br><small>MANUAL</small>`:""}</td><td>${escapeHtml(b.away)} @ ${escapeHtml(b.home)}${b.competition?`<br><small>${escapeHtml(b.competition)}</small>`:""}</td><td>${escapeHtml(b.team)}</td><td>${fmtLine(b.line)}</td><td>${fmtPrice(b.price)}</td><td>${Number(b.stake)>0?`$${Number(b.stake).toFixed(2)}`:"—"}</td><td>${resultPill(b)}</td><td>${["WIN","LOSS","PUSH"].includes(b.result)?`${fmtUnits(b.unitsProfit)}${Number.isFinite(Number(b.dollarsProfit))?`<br><small>${Number(b.dollarsProfit)<0?"-":""}$${Math.abs(Number(b.dollarsProfit)).toFixed(2)}</small>`:""}`:"—"}</td><td>${b.edge===null||b.edge===undefined?"—":`${Number(b.edge)>=0?"+":""}${Number(b.edge).toFixed(1)}`}</td><td><div class="bet-row-actions">${String(b.result||"PENDING").toUpperCase()==="PENDING"&&normalizeSport(b.sport)!=="CFB"?`<button class="small-btn settle" onclick="openSettleBet('${escapeHtml(b.id)}')">Settle</button>`:""}<button class="small-btn" onclick="openEditBet('${escapeHtml(b.id)}')">Edit</button><button class="small-btn danger" onclick="deleteBet('${escapeHtml(b.id)}')">Delete</button></div></td>
   </tr>`).join("")}</tbody></table>`;
 }
 function clearBetGrade(b){
@@ -1494,6 +1494,8 @@ function openEditBet(id){
   $("editLine").value=Number.isFinite(Number(b.line))?Number(b.line):""; $("editPrice").value=Number.isFinite(Number(b.price))?Number(b.price):-110;
   $("editUnits").value=Number.isFinite(Number(b.units))?Number(b.units):1; $("editStake").value=Number.isFinite(Number(b.stake))&&Number(b.stake)>0?Number(b.stake):"";
   $("editKickoff").value=isoToLocalDateTimeValue(b.kickoff||b.createdAt); $("editScoreAtBet").value=b.scoreAtBet||""; $("editGameState").value=b.gameState||""; $("editNotes").value=b.notes||"";
+  const canSettle=String(b.result||"PENDING").toUpperCase()==="PENDING"&&normalizeSport(b.sport)!=="CFB";
+  $("editSettleBtn").classList.toggle("hidden",!canSettle);
   syncEditBetKind(); $("editBetDialog").showModal();
 }
 window.openEditBet=openEditBet;
@@ -1610,6 +1612,12 @@ $("manualBetForm").addEventListener("submit",e=>{
 });
 
 
+$("editSettleBtn").addEventListener("click",()=>{
+  const id=$("editBetId").value||currentEditingBetId;
+  if(!id)return;
+  $("editBetDialog").close();
+  openSettleBet(id);
+});
 $("settleBetClose").addEventListener("click",()=>$("settleBetDialog").close());
 $("settleBetForm").addEventListener("submit",e=>{
   e.preventDefault();
@@ -1650,7 +1658,9 @@ $("editBetForm").addEventListener("submit",e=>{
   if(identityChanged||old.team!==team){b.edge=null;b.edgeScore=null;b.projectedLine=null;b.classification="EDITED";b.consensusLine=null;b.betmgmVsConsensus=null;b.matchedSystems=[];}
   if(criticalChanged)clearBetGrade(b);
   bets[idx]=b; saveBets(bets);
-  $("betCheckStatus").textContent=criticalChanged?"Wager updated and reset to Pending. Tap Check Results to grade the corrected ticket.":"Wager notes/context updated. Existing grade preserved.";
+  $("betCheckStatus").textContent=criticalChanged
+    ?(sport==="CFB"?"Wager updated and reset to Pending. Tap Check Results to grade the corrected ticket.":"Wager updated and reset to Pending. Use Settle after the game is final.")
+    :"Wager notes/context updated. Existing grade preserved.";
   currentEditingBetId=null; $("editBetDialog").close();
 });
 
@@ -1802,7 +1812,7 @@ $("clearBetsBtn").addEventListener("click",async()=>{if(confirm(cloudUser?"Clear
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=93").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=93a").catch(()=>{}));}
 (async()=>{
   renderLiveBets();
   renderBetMgmPerformance();

@@ -212,3 +212,8 @@ dialog{width:min(720px,calc(100vw - 28px));border:1px solid #365344;background:#
 .small-btn.settle:hover{background:rgba(84,240,143,.14)}
 .settle-rule-note{padding:10px 12px;border:1px solid #4c654f;border-radius:11px;color:#cde7d3;background:rgba(84,240,143,.035);font-size:10px;line-height:1.45}
 @media(max-width:620px){.ledger-sport-filter{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+
+/* v0.9.3a Settle action visibility fix */
+.settle-edit-btn{border-color:#3c7a53;color:#dfffea;background:rgba(84,240,143,.055);margin-top:2px}
+.settle-edit-btn:hover{background:rgba(84,240,143,.12)}
