@@ -967,13 +967,39 @@ function detectSportsbook(text){
   ];
   return books.find(([rx])=>rx.test(t))?.[1]||"";
 }
+const NFL_TEAM_NAMES = [
+  "Arizona Cardinals","Atlanta Falcons","Baltimore Ravens","Buffalo Bills","Carolina Panthers","Chicago Bears",
+  "Cincinnati Bengals","Cleveland Browns","Dallas Cowboys","Denver Broncos","Detroit Lions","Green Bay Packers",
+  "Houston Texans","Indianapolis Colts","Jacksonville Jaguars","Kansas City Chiefs","Las Vegas Raiders",
+  "Los Angeles Chargers","LA Chargers","Los Angeles Rams","LA Rams","Miami Dolphins","Minnesota Vikings",
+  "New England Patriots","New Orleans Saints","New York Giants","NY Giants","New York Jets","NY Jets",
+  "Philadelphia Eagles","Pittsburgh Steelers","San Francisco 49ers","Seattle Seahawks","Tampa Bay Buccaneers",
+  "Tennessee Titans","Washington Commanders"
+];
+const NBA_TEAM_NAMES = [
+  "Atlanta Hawks","Boston Celtics","Brooklyn Nets","Charlotte Hornets","Chicago Bulls","Cleveland Cavaliers",
+  "Dallas Mavericks","Denver Nuggets","Detroit Pistons","Golden State Warriors","Houston Rockets","Indiana Pacers",
+  "LA Clippers","Los Angeles Clippers","Los Angeles Lakers","Memphis Grizzlies","Miami Heat","Milwaukee Bucks",
+  "Minnesota Timberwolves","New Orleans Pelicans","New York Knicks","Oklahoma City Thunder","Orlando Magic",
+  "Philadelphia 76ers","Phoenix Suns","Portland Trail Blazers","Sacramento Kings","San Antonio Spurs",
+  "Toronto Raptors","Utah Jazz","Washington Wizards"
+];
+function containsKnownTeam(text,names){
+  const t=String(text||"").toLowerCase();
+  return names.some(name=>t.includes(name.toLowerCase()));
+}
 function detectBetSport(text){
   const t=String(text||"").toLowerCase();
-  if(/\bncaab\b|college basketball|men'?s college basketball|women'?s college basketball|march madness/.test(t)) return "CBB";
+
+  if(/\bncaab\b|\bncaam\b|college basketball|men'?s college basketball|women'?s college basketball|march madness/.test(t)) return "CBB";
   if(/\bnba\b|national basketball association/.test(t)) return "NBA";
   if(/\bnfl\b|national football league/.test(t)) return "NFL";
   if(/\bncaaf\b|\bcfb\b|college football|ncaa football/.test(t)) return "CFB";
-  return "CFB";
+
+  if(containsKnownTeam(t,NFL_TEAM_NAMES)) return "NFL";
+  if(containsKnownTeam(t,NBA_TEAM_NAMES)) return "NBA";
+
+  return "";
 }
 function detectBetKind(text){
   return /\blive\b|in[\s-]?game|live bet|q[1-4]\b|quarter\s*[1-4]|halftime|2nd half|second half/i.test(String(text||"")) ? "LIVE" : "PREGAME";
@@ -1115,7 +1141,7 @@ function clearBetSlipPreviewUrl(){
   if(currentBetSlipObjectUrl){URL.revokeObjectURL(currentBetSlipObjectUrl);currentBetSlipObjectUrl=null;}
 }
 function fillBetSlipImport(parsed){
-  $("importSport").value=normalizeSport(parsed.sport);
+  $("importSport").value=EDGE_SPORTS[parsed.sport]?parsed.sport:"";
   $("importBetKind").value=parsed.kind==="LIVE"?"LIVE":"PREGAME";
   $("importAway").value=parsed.away||"";
   $("importHome").value=parsed.home||"";
@@ -1129,9 +1155,10 @@ function fillBetSlipImport(parsed){
   $("importNotes").value="";
   $("betSlipRawText").value=parsed.rawText||"";
   const pct=Math.round(Math.min(1,parsed.confidence/5)*100);
+  const sportWarning=EDGE_SPORTS[parsed.sport]?"":" Sport is ambiguous, so choose CFB or CBB before saving.";
   $("betSlipConfidence").textContent=pct>=70
-    ?`Edge found most of the ticket (${pct}% field confidence). Confirm the matchup and kickoff before saving.`
-    :`Edge found part of the ticket (${pct}% field confidence). Fill any missing fields and confirm everything before saving.`;
+    ?`Edge found most of the ticket (${pct}% field confidence). Confirm the matchup and kickoff before saving.${sportWarning}`
+    :`Edge found part of the ticket (${pct}% field confidence). Fill any missing fields and confirm everything before saving.${sportWarning}`;
 }
 async function recognizeBetSlip(file){
   if(!file||betSlipOcrBusy)return;
@@ -1467,7 +1494,12 @@ function openBetMgm(){window.open(BETMGM_URL,"_blank","noopener,noreferrer");} w
 
 $("betSlipImportForm").addEventListener("submit",e=>{
   e.preventDefault();
-  const sport=normalizeSport($("importSport").value);
+  const rawSport=$("importSport").value;
+  if(!EDGE_SPORTS[rawSport]){
+    $("betSlipConfidence").textContent="Choose the correct sport before saving this wager.";
+    return;
+  }
+  const sport=rawSport;
   const kind=$("importBetKind").value==="LIVE"?"LIVE":"PREGAME";
   const away=$("importAway").value.trim(),home=$("importHome").value.trim(),team=$("importTeam").value.trim();
   const line=Number($("importLine").value),price=Number($("importPrice").value),units=Number($("importUnits").value);
@@ -1697,7 +1729,7 @@ $("clearBetsBtn").addEventListener("click",async()=>{if(confirm(cloudUser?"Clear
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=91").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=92").catch(()=>{}));}
 (async()=>{
   renderLiveBets();
   renderBetMgmPerformance();

@@ -1,7 +1,7 @@
-const CACHE = 'saturday-edge-shell-v091';
+const CACHE = 'saturday-edge-shell-v092';
 const SHARE_CACHE = 'saturday-edge-share-v1';
 const SHARED_BET_SLIP_KEY = './shared-bet-slip';
-const SHELL = ['./', './index.html', './styles.css?v=91', './app.js?v=91', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const SHELL = ['./', './index.html', './styles.css?v=92', './app.js?v=92', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', event => {
   self.skipWaiting();
