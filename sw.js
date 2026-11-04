@@ -1,7 +1,8 @@
-const CACHE = 'saturday-edge-shell-v093a';
+const CACHE = 'saturday-edge-shell-v094';
 const SHARE_CACHE = 'saturday-edge-share-v1';
 const SHARED_BET_SLIP_KEY = './shared-bet-slip';
-const SHELL = ['./', './index.html', './styles.css?v=93a', './app.js?v=93a', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const SHARED_HISTORY_TEXT_KEY = './shared-history-text';
+const SHELL = ['./', './index.html', './styles.css?v=94', './app.js?v=94', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', event => {
   self.skipWaiting();
@@ -23,13 +24,21 @@ self.addEventListener('fetch', event => {
       try{
         const formData = await event.request.formData();
         const file = formData.get('betSlipImage');
-        if(file && typeof file.arrayBuffer === 'function'){
-          const cache = await caches.open(SHARE_CACHE);
+        const sharedText = [formData.get('sharedTitle'),formData.get('sharedText')].filter(Boolean).join('\n').trim();
+        const cache = await caches.open(SHARE_CACHE);
+        if(file && typeof file.arrayBuffer === 'function' && file.size){
           await cache.put(
             SHARED_BET_SLIP_KEY,
             new Response(file, {headers:{'Content-Type':file.type || 'image/png'}})
           );
           return Response.redirect(new URL('./?importBetSlip=1', event.request.url).toString(), 303);
+        }
+        if(sharedText){
+          await cache.put(
+            SHARED_HISTORY_TEXT_KEY,
+            new Response(sharedText, {headers:{'Content-Type':'text/plain; charset=utf-8'}})
+          );
+          return Response.redirect(new URL('./?importHistory=1', event.request.url).toString(), 303);
         }
         return Response.redirect(new URL('./', event.request.url).toString(), 303);
       }catch(error){

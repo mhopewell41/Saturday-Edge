@@ -1,7 +1,7 @@
 {
   "name": "Saturday Edge",
   "short_name": "Sat Edge",
-  "description": "Multi-sport spread analysis with smart bet-slip import, international basketball tracking, cloud ledger, and result settlement",
+  "description": "Multi-sport spread analysis with BetMGM history import, smart bet-slip OCR, international basketball tracking, and private cloud ledger",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#07100c",

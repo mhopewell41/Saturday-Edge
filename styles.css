@@ -217,3 +217,35 @@ dialog{width:min(720px,calc(100vw - 28px));border:1px solid #365344;background:#
 /* v0.9.3a Settle action visibility fix */
 .settle-edit-btn{border-color:#3c7a53;color:#dfffea;background:rgba(84,240,143,.055);margin-top:2px}
 .settle-edit-btn:hover{background:rgba(84,240,143,.12)}
+
+
+/* v0.9.4 BetMGM History Import */
+.history-import-btn{border-color:#756234;color:#ffe9a8;background:rgba(223,180,67,.055)}
+.history-dialog{width:min(1050px,calc(100vw - 20px))}
+.history-import-body{max-height:min(82vh,930px);overflow:auto}
+.history-source-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.history-source-card{display:grid;gap:10px;padding:14px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.018)}
+.history-source-card strong{font-size:13px}.history-source-card span{color:var(--muted);font-size:10px;line-height:1.45}
+.history-source-card textarea{width:100%;resize:vertical;min-height:130px;background:#07100c;color:#dbe9e0;border:1px solid var(--line);border-radius:10px;padding:10px;font:11px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace}
+.history-progress{display:grid;gap:7px;padding:12px;border:1px solid #355d70;border-radius:12px;background:rgba(85,157,205,.045)}
+.history-progress span{color:var(--muted);font-size:10px}
+.history-review-head{display:flex;align-items:end;justify-content:space-between;gap:12px;padding-top:5px}
+.history-review-head h3{margin:3px 0 0}.history-review-actions{display:flex;gap:8px}
+.history-review-list{display:grid;gap:12px}
+.history-review-card{border:1px solid var(--line);border-radius:15px;padding:13px;background:rgba(5,17,11,.75)}
+.history-review-card.good{border-color:#356b49}.history-review-card.warn{border-color:#6a5a2e}.history-review-card.bad{border-color:#694242;opacity:.86}
+.history-review-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.history-check{display:flex!important;align-items:center;gap:7px!important;flex-direction:row!important;font-weight:850!important}
+.history-check input{width:auto!important}
+.history-status{padding:5px 8px;border-radius:999px;border:1px solid;font-size:9px;font-weight:900;letter-spacing:.05em}
+.history-status.good{color:#9ef4ba;border-color:#357b4e}.history-status.warn{color:#f2d47d;border-color:#6a5a2e}.history-status.bad{color:#ffadad;border-color:#694242}
+.history-edit-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.history-edit-grid label{font-size:8px!important}.history-edit-grid input,.history-edit-grid select{font-size:10px!important;padding:8px!important;min-width:0}
+.history-review-card details{margin-top:9px;border-top:1px solid var(--line);padding-top:7px}
+.history-review-card summary{cursor:pointer;color:var(--muted);font-size:9px}.history-review-card pre{white-space:pre-wrap;overflow-wrap:anywhere;color:#9fb1a5;font-size:9px;line-height:1.4}
+@media(max-width:850px){.history-edit-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:620px){
+  .history-source-grid{grid-template-columns:1fr}
+  .history-review-head{align-items:flex-start;flex-direction:column}
+  .history-edit-grid{grid-template-columns:1fr 1fr}
+}

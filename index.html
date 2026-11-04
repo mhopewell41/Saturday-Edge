@@ -7,7 +7,7 @@
   <title>Saturday Edge</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=93a" />
+  <link rel="stylesheet" href="styles.css?v=94" />
 </head>
 <body>
   <div class="app-shell">
@@ -27,7 +27,7 @@
 
     <section class="hero">
       <div>
-        <div class="eyebrow">BETMGM • SPREADS • APP v0.9.3a • SETTLE FIX • INTERNATIONAL + SETTLE BET • CFB MODEL v0.5</div>
+        <div class="eyebrow">BETMGM • SPREADS • APP v0.9.4 • BETMGM HISTORY IMPORT • MULTI-SPORT LEDGER v0.3 • CFB MODEL v0.5</div>
         <h2>Find the number.<br><span>Keep the receipts.</span></h2>
         <p id="statusText">Loading the live board…</p>
       </div>
@@ -212,6 +212,7 @@
           <button id="openBetMgmBtn" class="btn primary" type="button">↗ Open BetMGM</button>
           <button id="importBetSlipBtn" class="btn ghost smart-import-btn" type="button">📸 Import Bet Slip</button>
           <input id="betSlipFileInput" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" class="hidden" />
+          <button id="importBetMgmHistoryBtn" class="btn ghost history-import-btn" type="button">📚 Import BetMGM History</button>
           <button id="manualBetBtn" class="btn ghost manual-bet-btn" type="button">＋ Manual Bet</button>
           <button id="checkBetResultsBtn" class="btn ghost" type="button">✓ Check Results</button>
           <button id="exportBetsBtn" class="btn ghost" type="button">Export</button>
@@ -435,6 +436,64 @@
     </form>
   </dialog>
 
+
+  <dialog id="betMgmHistoryDialog" class="history-dialog">
+    <div class="dialog-head">
+      <div>
+        <div class="eyebrow">BATCH RECEIPT IMPORT v0.1</div>
+        <h2>📚 Import BetMGM History</h2>
+      </div>
+      <button id="betMgmHistoryClose" class="icon-btn" type="button">✕</button>
+    </div>
+    <div class="settings-body history-import-body">
+      <div class="smart-import-note">
+        Use a long scrolling screenshot, select several history screenshots at once, or paste text copied/shared from BetMGM. Edge scans for <strong>single spread wagers</strong>, checks for duplicates, and makes you review them before import.
+      </div>
+
+      <div class="history-source-grid">
+        <div class="history-source-card">
+          <strong>📸 Screenshots</strong>
+          <span>Best on mobile. A Samsung scrolling screenshot can capture many BetMGM history cards in one image.</span>
+          <button id="chooseHistoryImagesBtn" class="btn ghost full" type="button">Choose History Screenshot(s)</button>
+          <input id="historyImagesInput" type="file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" multiple class="hidden" />
+        </div>
+        <div class="history-source-card">
+          <strong>📋 Paste / Share Text</strong>
+          <span>If BetMGM lets you copy history text, paste it here. Shared text can also open this importer automatically.</span>
+          <textarea id="historyPasteText" rows="7" placeholder="Paste BetMGM betting-history text here…"></textarea>
+          <button id="scanHistoryTextBtn" class="btn ghost full" type="button">Scan Pasted Text</button>
+        </div>
+      </div>
+
+      <div id="historyImportProgress" class="history-progress hidden">
+        <strong id="historyProgressTitle">Reading history…</strong>
+        <span id="historyProgressStatus">Preparing OCR</span>
+        <div class="ocr-progress-track"><div id="historyProgressBar" class="ocr-progress-bar"></div></div>
+      </div>
+
+      <div class="history-review-head">
+        <div>
+          <div class="eyebrow">IMPORT REVIEW</div>
+          <h3 id="historyReviewTitle">No wagers scanned yet</h3>
+        </div>
+        <div class="history-review-actions">
+          <button id="historySelectAllBtn" class="btn ghost" type="button">Select clean</button>
+          <button id="historyClearReviewBtn" class="btn ghost" type="button">Clear review</button>
+        </div>
+      </div>
+      <div id="historyReviewList" class="history-review-list">
+        <div class="empty">Scan a BetMGM history screenshot or paste history text to begin.</div>
+      </div>
+      <div id="historyImportSummary" class="smart-import-confidence">Nothing has been added to your ledger.</div>
+      <button id="importSelectedHistoryBtn" class="btn primary full" type="button" disabled>Import Selected Wagers</button>
+
+      <details class="ocr-raw-box">
+        <summary>Combined OCR / pasted history text</summary>
+        <textarea id="historyRawText" rows="9" readonly></textarea>
+      </details>
+    </div>
+  </dialog>
+
   <dialog id="manualBetDialog">
     <div class="dialog-head">
       <div>
@@ -620,6 +679,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=93a"></script>
+  <script src="app.js?v=94"></script>
 </body>
 </html>

@@ -52,6 +52,9 @@ let currentBetSlipObjectUrl = null;
 let betSlipOcrBusy = false;
 const SHARE_CACHE = "saturday-edge-share-v1";
 const SHARED_BET_SLIP_KEY = "./shared-bet-slip";
+const SHARED_HISTORY_TEXT_KEY = "./shared-history-text";
+let historyImportCandidates = [];
+let historyOcrBusy = false;
 
 const EDGE_SPORTS = {
   CFB:{label:"College Football",short:"CFB",icon:"🏈",grader:true},
@@ -1152,6 +1155,292 @@ function parseBetSlipText(text){
     confidence
   };
 }
+
+function historyTicketId(text){
+  const m=String(text||"").match(/(?:bet|ticket|wager)\s*(?:id|#|number|no\.?)\s*:?\s*([A-Z0-9\-]{5,})/i);
+  return m?m[1]:null;
+}
+function historyResult(text){
+  const t=String(text||"").toLowerCase();
+  if(/\b(?:won|winner|win)\b/.test(t)) return "WIN";
+  if(/\b(?:lost|loss|loser)\b/.test(t)) return "LOSS";
+  if(/\b(?:push|pushed)\b/.test(t)) return "PUSH";
+  if(/\b(?:void|voided|cancelled|canceled|refunded)\b/.test(t)) return "VOID";
+  return "PENDING";
+}
+function historyUnsupportedReason(text){
+  const t=String(text||"").toLowerCase();
+  if(/same game parlay|\bsgp\b|\bparlay\b|accumulator/.test(t)) return "Parlay / SGP";
+  if(/\bmoneyline\b|\bmoney line\b/.test(t)) return "Moneyline";
+  if(/\btotal\b|\bover\b|\bunder\b/.test(t) && !/\bspread\b/.test(t)) return "Total";
+  if(/\bcash(?:ed)?\s*out\b/.test(t)) return "Cash out";
+  return "";
+}
+function historyFingerprint(b){
+  if(b.ticketId) return `ticket:${String(b.ticketId).toLowerCase()}`;
+  const day=(b.kickoff||b.createdAt||"").slice(0,10);
+  return [
+    normalizeSport(b.sport),String(b.away||"").toLowerCase().replace(/\W/g,""),
+    String(b.home||"").toLowerCase().replace(/\W/g,""),
+    String(b.team||"").toLowerCase().replace(/\W/g,""),
+    Number(b.line),Number(b.price),Number(b.stake||0).toFixed(2),day
+  ].join("|");
+}
+function findHistoryDuplicates(candidates){
+  const existing=getBets();
+  const seen=new Set(existing.map(historyFingerprint));
+  const local=new Set();
+  return candidates.map(c=>{
+    const fp=historyFingerprint(c);
+    const duplicate=seen.has(fp)||local.has(fp);
+    local.add(fp);
+    return {...c,duplicate};
+  });
+}
+function allSpreadSelections(lines){
+  const found=[];
+  const patterns=[
+    /^(.{2,70}?)\s+([+\-]\d{1,2}(?:\.\d+)?)\s*(?:\(?([+\-]\d{3,4})\)?)?\s*$/,
+    /^(.{2,70}?)\s+(?:spread\s*)?([+\-]\d{1,2}(?:\.\d+)?)\s*(?:\(?([+\-]\d{3,4})\)?)?/i
+  ];
+  lines.forEach((line,idx)=>{
+    for(const rx of patterns){
+      const m=line.match(rx);
+      if(!m) continue;
+      const team=cleanTeamName(m[1]),lineNum=Number(m[2]),price=m[3]?Number(m[3]):null;
+      if(!plausibleTeamName(team)||!Number.isFinite(lineNum)||Math.abs(lineNum)>70) continue;
+      if(/\b(?:wager|risk|stake|payout|to win|potential return)\b/i.test(team)) continue;
+      found.push({team,line:lineNum,price:Number.isFinite(price)?price:null,idx,raw:line});
+      break;
+    }
+  });
+  const deduped=[];
+  const seen=new Set();
+  for(const item of found){
+    const key=`${item.idx}|${item.team.toLowerCase()}|${item.line}`;
+    if(seen.has(key))continue;
+    seen.add(key);deduped.push(item);
+  }
+  return deduped;
+}
+function historyWindow(lines,idx,radius=8){
+  return lines.slice(Math.max(0,idx-radius),Math.min(lines.length,idx+radius+1));
+}
+function matchupNearSelection(lines,sel){
+  const start=Math.max(0,sel.idx-8),end=Math.min(lines.length,sel.idx+9);
+  const win=lines.slice(start,end);
+  for(const line of win){
+    const m=line.match(/^(.{2,60}?)\s+(?:@|at|vs\.?|versus|v\.)\s+(.{2,60}?)$/i);
+    if(m){
+      const away=cleanTeamName(m[1]),home=cleanTeamName(m[2]);
+      if(plausibleTeamName(away)&&plausibleTeamName(home))return {away,home};
+    }
+  }
+  const names=win.map(cleanTeamName).filter(plausibleTeamName).filter(v=>!teamNamesMatch(v,sel.team));
+  return {away:"",home:names[0]||""};
+}
+function parseBetMgmHistoryText(text){
+  const clean=normalizeOcrText(text),lines=ocrLines(clean);
+  const selections=allSpreadSelections(lines);
+  const candidates=selections.map((sel,index)=>{
+    const win=historyWindow(lines,sel.idx,10);
+    const block=win.join("\n");
+    const unsupported=historyUnsupportedReason(block);
+    const matchup=matchupNearSelection(lines,sel);
+    const sport=detectBetSport(block)||detectBetSport(`${matchup.away} ${matchup.home} ${sel.team}`);
+    const price=Number.isFinite(sel.price)?sel.price:parseAmericanOdds(block);
+    const stake=parseStakeAmount(block);
+    const kickoffLocal=parseTicketDateTime(win);
+    const kickoff=kickoffLocal?new Date(kickoffLocal).toISOString():new Date().toISOString();
+    const result=historyResult(block);
+    const ticketId=historyTicketId(block);
+    const competition=detectCompetition(block);
+    const away=matchup.away||"";
+    const home=matchup.home||"";
+    const complete=Boolean(EDGE_SPORTS[sport]&&away&&home&&sel.team&&Number.isFinite(sel.line)&&Number.isFinite(price));
+    return {
+      reviewId:`hist-${Date.now()}-${index}`,
+      ticketId,
+      sport:EDGE_SPORTS[sport]?sport:"",
+      market:"SPREAD",
+      kind:detectBetKind(block),
+      result,
+      away,home,team:sel.team,line:sel.line,price:Number.isFinite(price)?price:-110,
+      units:1,stake:Number.isFinite(stake)?stake:null,
+      kickoff,createdAt:kickoff,competition:competition||null,
+      sportsbook:"BetMGM",importSource:"BETMGM_HISTORY",
+      unsupported,complete,raw:block
+    };
+  });
+  return findHistoryDuplicates(candidates);
+}
+function historyResultOptions(value){
+  return ["PENDING","WIN","LOSS","PUSH"].map(v=>`<option value="${v}" ${v===value?"selected":""}>${v}</option>`).join("");
+}
+function historySportOptions(value){
+  return [
+    ["","Choose…"],["CFB","🏈 CFB"],["NFL","🏈 NFL"],["CBB","🏀 CBB"],["NBA","🏀 NBA"],["INTL","🌍 INTL"]
+  ].map(([v,l])=>`<option value="${v}" ${v===value?"selected":""}>${l}</option>`).join("");
+}
+function renderHistoryReview(){
+  const list=$("historyReviewList"),btn=$("importSelectedHistoryBtn");
+  if(!historyImportCandidates.length){
+    list.innerHTML=`<div class="empty">No spread wagers detected yet.</div>`;
+    $("historyReviewTitle").textContent="No wagers scanned yet";
+    $("historyImportSummary").textContent="Nothing has been added to your ledger.";
+    btn.disabled=true;return;
+  }
+  let cleanCount=0,dupCount=0,blockedCount=0;
+  list.innerHTML=historyImportCandidates.map((c,i)=>{
+    const blocked=Boolean(c.unsupported),dup=Boolean(c.duplicate),ready=c.complete&&!blocked&&!dup;
+    if(ready)cleanCount++; if(dup)dupCount++; if(blocked)blockedCount++;
+    const status=dup?"DUPLICATE":blocked?`SKIP • ${c.unsupported}`:c.complete?"READY":"REVIEW";
+    const statusClass=dup||blocked?"bad":c.complete?"good":"warn";
+    return `<article class="history-review-card ${statusClass}" data-history-index="${i}">
+      <div class="history-review-top">
+        <label class="history-check"><input class="history-pick" type="checkbox" ${ready?"checked":""} ${dup||blocked?"disabled":""}/> Import</label>
+        <span class="history-status ${statusClass}">${escapeHtml(status)}</span>
+      </div>
+      <div class="history-edit-grid">
+        <label>Sport<select class="hr-sport">${historySportOptions(c.sport)}</select></label>
+        <label>Result<select class="hr-result">${historyResultOptions(c.result)}</select></label>
+        <label>Away<input class="hr-away" value="${escapeHtml(c.away)}" /></label>
+        <label>Home<input class="hr-home" value="${escapeHtml(c.home)}" /></label>
+        <label>Bet side<input class="hr-team" value="${escapeHtml(c.team)}" /></label>
+        <label>Spread<input class="hr-line" type="number" step="0.5" value="${Number.isFinite(c.line)?c.line:""}" /></label>
+        <label>Odds<input class="hr-price" type="number" step="1" value="${Number.isFinite(c.price)?c.price:-110}" /></label>
+        <label>Stake $<input class="hr-stake" type="number" step="0.01" min="0" value="${Number.isFinite(c.stake)?c.stake:""}" /></label>
+        <label>League<input class="hr-competition" value="${escapeHtml(c.competition||"")}" /></label>
+        <label>Ticket ID<input class="hr-ticket" value="${escapeHtml(c.ticketId||"")}" /></label>
+      </div>
+      <details><summary>OCR block</summary><pre>${escapeHtml(c.raw||"")}</pre></details>
+    </article>`;
+  }).join("");
+  $("historyReviewTitle").textContent=`${historyImportCandidates.length} candidate wager${historyImportCandidates.length===1?"":"s"} found`;
+  $("historyImportSummary").textContent=`${cleanCount} ready • ${dupCount} duplicate${dupCount===1?"":"s"} • ${blockedCount} unsupported. Review checked rows before import.`;
+  btn.disabled=cleanCount===0;
+}
+function collectHistoryReviewRows(){
+  return [...$("historyReviewList").querySelectorAll(".history-review-card")].map(card=>{
+    const i=Number(card.dataset.historyIndex),base=historyImportCandidates[i]||{};
+    const pick=card.querySelector(".history-pick");
+    const stakeValue=card.querySelector(".hr-stake").value;
+    return {
+      selected:Boolean(pick?.checked&&!pick.disabled),
+      data:{
+        ...base,
+        ticketId:card.querySelector(".hr-ticket").value.trim()||null,
+        sport:card.querySelector(".hr-sport").value,
+        result:card.querySelector(".hr-result").value,
+        away:card.querySelector(".hr-away").value.trim(),
+        home:card.querySelector(".hr-home").value.trim(),
+        team:card.querySelector(".hr-team").value.trim(),
+        line:Number(card.querySelector(".hr-line").value),
+        price:Number(card.querySelector(".hr-price").value),
+        stake:stakeValue===""?null:Number(stakeValue),
+        competition:card.querySelector(".hr-competition").value.trim()||null
+      }
+    };
+  });
+}
+async function scanHistoryImages(files){
+  if(historyOcrBusy||!files?.length)return;
+  historyOcrBusy=true;
+  $("historyImportProgress").classList.remove("hidden");
+  $("historyProgressBar").style.width="2%";
+  $("historyProgressTitle").textContent=`Reading ${files.length} history image${files.length===1?"":"s"}…`;
+  let combined="";
+  try{
+    if(!globalThis.Tesseract?.createWorker)throw new Error("OCR engine did not load.");
+    const worker=await Tesseract.createWorker("eng",1,{
+      logger:m=>{
+        if(m.status)$("historyProgressStatus").textContent=m.status.replace(/_/g," ");
+      }
+    });
+    for(let i=0;i<files.length;i++){
+      $("historyProgressStatus").textContent=`Image ${i+1} of ${files.length}`;
+      const result=await worker.recognize(files[i]);
+      combined+=`\n\n===== IMAGE ${i+1} =====\n${result?.data?.text||""}`;
+      $("historyProgressBar").style.width=`${Math.round(((i+1)/files.length)*100)}%`;
+    }
+    await worker.terminate();
+    $("historyRawText").value=combined.trim();
+    historyImportCandidates=parseBetMgmHistoryText(combined);
+    renderHistoryReview();
+    $("historyProgressTitle").textContent="History scan complete";
+    $("historyProgressStatus").textContent="Review the detected spread wagers below.";
+  }catch(err){
+    $("historyProgressTitle").textContent="History scan failed";
+    $("historyProgressStatus").textContent=err.message||String(err);
+  }finally{historyOcrBusy=false;}
+}
+function scanPastedHistoryText(text){
+  const clean=String(text||"").trim();
+  if(!clean){$("historyImportSummary").textContent="Paste some BetMGM history text first.";return;}
+  $("historyRawText").value=clean;
+  historyImportCandidates=parseBetMgmHistoryText(clean);
+  renderHistoryReview();
+}
+function openBetMgmHistoryImport(){
+  $("betMgmHistoryDialog").showModal();
+}
+async function maybeOpenSharedHistory(){
+  const params=new URLSearchParams(location.search);
+  if(params.get("importHistory")!=="1"||!("caches" in window))return;
+  try{
+    const cache=await caches.open(SHARE_CACHE);
+    const response=await cache.match(SHARED_HISTORY_TEXT_KEY);
+    if(response){
+      const text=await response.text();
+      await cache.delete(SHARED_HISTORY_TEXT_KEY);
+      history.replaceState(null,"",location.pathname);
+      $("historyPasteText").value=text;
+      openBetMgmHistoryImport();
+      scanPastedHistoryText(text);
+    }
+  }catch(err){console.warn("Shared BetMGM history could not be opened",err);}
+}
+function historyGradeMoney(b){
+  const r=String(b.result||"PENDING").toUpperCase();
+  const units=Number(b.units)||1,stake=Number(b.stake);
+  if(!["WIN","LOSS","PUSH"].includes(r))return b;
+  b.unitsProfit=r==="WIN"?americanWinProfit(units,b.price):r==="LOSS"?-units:0;
+  if(Number.isFinite(stake)&&stake>0)b.dollarsProfit=r==="WIN"?americanWinProfit(stake,b.price):r==="LOSS"?-stake:0;
+  b.gradedAt=new Date().toISOString();
+  b.gradeSource="BETMGM_HISTORY";
+  return b;
+}
+function importReviewedHistory(){
+  const reviewed=collectHistoryReviewRows().filter(x=>x.selected);
+  if(!reviewed.length){$("historyImportSummary").textContent="Select at least one clean wager to import.";return;}
+  const bets=getBets(),existing=new Set(bets.map(historyFingerprint));
+  let added=0,skipped=0;
+  for(const row of reviewed){
+    const c=row.data;
+    if(!EDGE_SPORTS[c.sport]||!c.away||!c.home||!c.team||!Number.isFinite(c.line)||!Number.isFinite(c.price)){skipped++;continue;}
+    const kickoff=c.kickoff||new Date().toISOString();
+    const b=historyGradeMoney({
+      id:makeBetId(),ticketId:c.ticketId||null,sport:c.sport,competition:c.competition||null,
+      market:"SPREAD",kind:c.kind==="LIVE"?"LIVE":"PREGAME",result:c.result||"PENDING",
+      manualEntry:true,importSource:"BETMGM_HISTORY",sportsbook:"BetMGM",
+      createdAt:c.createdAt||kickoff,kickoff,season:new Date(kickoff).getFullYear(),week:null,
+      gameId:manualGameId(c.away,c.home,kickoff,c.sport),cfbdGameId:null,
+      away:c.away,home:c.home,team:c.team,line:Number(c.line),price:Number(c.price),
+      units:Number(c.units)||1,stake:Number.isFinite(Number(c.stake))?Number(c.stake):null,
+      edge:null,projectedLine:null,classification:"HISTORY_IMPORT",
+      notes:c.ticketId?`BetMGM history • Ticket ${c.ticketId}`:"BetMGM history import"
+    });
+    const fp=historyFingerprint(b);
+    if(existing.has(fp)){skipped++;continue;}
+    existing.add(fp);bets.push(b);added++;
+  }
+  bets.sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
+  saveBets(bets);
+  $("historyImportSummary").textContent=`Imported ${added} BetMGM spread wager${added===1?"":"s"}${skipped?` • skipped ${skipped}`:""}. Cloud sync will carry them to your other device.`;
+  $("betCheckStatus").textContent=`📚 BetMGM history import added ${added} wager${added===1?"":"s"}.`;
+  if(added)$("importSelectedHistoryBtn").disabled=true;
+}
+
 function clearBetSlipPreviewUrl(){
   if(currentBetSlipObjectUrl){URL.revokeObjectURL(currentBetSlipObjectUrl);currentBetSlipObjectUrl=null;}
 }
@@ -1706,7 +1995,7 @@ $("saveSettingsBtn").addEventListener("click",async()=>{
   localStorage.setItem("se-settings",JSON.stringify(settings));
   $("settingsDialog").close();
   await initCloudClient();
-  setTimeout(()=>maybeOpenSharedBetSlip(),350);
+  setTimeout(()=>{maybeOpenSharedBetSlip();maybeOpenSharedHistory();},350);
   await loadGames();
   await loadPerformance();
   if(activeView==="live") await loadLiveGames();
@@ -1763,6 +2052,18 @@ $("betDialogClose").addEventListener("click",()=>$("betDialog").close());
 $("manualBetClose").addEventListener("click",()=>$("manualBetDialog").close());
 $("editBetClose").addEventListener("click",()=>$("editBetDialog").close());
 $("editBetKind").addEventListener("change",syncEditBetKind);
+$("importBetMgmHistoryBtn").addEventListener("click",openBetMgmHistoryImport);
+$("betMgmHistoryClose").addEventListener("click",()=>$("betMgmHistoryDialog").close());
+$("chooseHistoryImagesBtn").addEventListener("click",()=>$("historyImagesInput").click());
+$("historyImagesInput").addEventListener("change",e=>{const files=[...(e.target.files||[])];if(files.length)scanHistoryImages(files);e.target.value="";});
+$("scanHistoryTextBtn").addEventListener("click",()=>scanPastedHistoryText($("historyPasteText").value));
+$("historySelectAllBtn").addEventListener("click",()=>{
+  $("historyReviewList").querySelectorAll(".history-pick:not(:disabled)").forEach(x=>x.checked=true);
+});
+$("historyClearReviewBtn").addEventListener("click",()=>{
+  historyImportCandidates=[];$("historyPasteText").value="";$("historyRawText").value="";renderHistoryReview();
+});
+$("importSelectedHistoryBtn").addEventListener("click",importReviewedHistory);
 $("importBetSlipBtn").addEventListener("click",openBetSlipFilePicker);
 $("betSlipFileInput").addEventListener("change",e=>{const file=e.target.files?.[0];if(file)recognizeBetSlip(file);e.target.value="";});
 $("betSlipImportClose").addEventListener("click",()=>{$("betSlipImportDialog").close();clearBetSlipPreviewUrl();});
@@ -1812,12 +2113,13 @@ $("clearBetsBtn").addEventListener("click",async()=>{if(confirm(cloudUser?"Clear
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=93a").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=94").catch(()=>{}));}
 (async()=>{
   renderLiveBets();
   renderBetMgmPerformance();
   updateCloudUi();
   await initCloudClient();
+  setTimeout(()=>{maybeOpenSharedBetSlip();maybeOpenSharedHistory();},350);
   await loadGames();
   await loadPerformance();
 })();
