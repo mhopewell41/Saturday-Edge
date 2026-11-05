@@ -1270,11 +1270,13 @@ function parseBetMgmCard(card,index){
 }
 function historyResult(text){
   const t=String(text||"").toLowerCase();
-  if(/\b(?:won|winner|win)\b/.test(t)) return "WIN";
-  if(/\b(?:lost|loss|loser)\b/.test(t)) return "LOSS";
-  if(/\b(?:push|pushed)\b/.test(t)) return "PUSH";
-  if(/\b(?:void|voided|cancelled|canceled|refunded)\b/.test(t)) return "VOID";
-  return "PENDING";
+  const m=t.match(/\b(won|winner|win|lost|loss|loser|push|pushed|void|voided|cancelled|canceled|refunded)\b/);
+  if(!m)return "PENDING";
+  const token=m[1];
+  if(["won","winner","win"].includes(token))return "WIN";
+  if(["lost","loss","loser"].includes(token))return "LOSS";
+  if(["push","pushed"].includes(token))return "PUSH";
+  return "VOID";
 }
 function historyUnsupportedReason(text){
   const t=String(text||"").toLowerCase();
@@ -1509,6 +1511,59 @@ function collectHistoryReviewRows(){
     };
   });
 }
+async function historyImageBitmap(file){
+  if(globalThis.createImageBitmap)return await createImageBitmap(file);
+  return await new Promise((resolve,reject)=>{
+    const img=new Image();
+    const url=URL.createObjectURL(file);
+    img.onload=()=>{URL.revokeObjectURL(url);resolve(img);};
+    img.onerror=e=>{URL.revokeObjectURL(url);reject(e);};
+    img.src=url;
+  });
+}
+async function prepareHistoryOcrSlices(file){
+  const bmp=await historyImageBitmap(file);
+  const w=bmp.width,h=bmp.height;
+  const isLong=h/w>2.4;
+  const targetWidth=Math.max(1100,Math.min(1500,w*4));
+  const scale=targetWidth/w;
+
+  // Normal screenshots stay as one image, but are upscaled if narrow.
+  if(!isLong){
+    const canvas=document.createElement("canvas");
+    canvas.width=Math.round(w*scale);
+    canvas.height=Math.round(h*scale);
+    const ctx=canvas.getContext("2d");
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality="high";
+    ctx.drawImage(bmp,0,0,canvas.width,canvas.height);
+    return [{image:canvas,label:"full"}];
+  }
+
+  // Very tall scrolling screenshots are sliced into overlapping sections so
+  // BetMGM card text remains large enough for OCR. The overlap protects cards
+  // that happen to cross a slice boundary.
+  const sliceHeight=Math.max(Math.round(w*2.25),420);
+  const overlap=Math.max(Math.round(w*.42),90);
+  const step=Math.max(200,sliceHeight-overlap);
+  const slices=[];
+  let y=0,index=1;
+  while(y<h){
+    const srcH=Math.min(sliceHeight,h-y);
+    const canvas=document.createElement("canvas");
+    canvas.width=Math.round(w*scale);
+    canvas.height=Math.round(srcH*scale);
+    const ctx=canvas.getContext("2d");
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality="high";
+    ctx.drawImage(bmp,0,y,w,srcH,0,0,canvas.width,canvas.height);
+    slices.push({image:canvas,label:`slice ${index}`,y,srcH});
+    if(y+srcH>=h)break;
+    y+=step;index++;
+  }
+  return slices;
+}
+
 async function scanHistoryImages(files){
   if(historyOcrBusy||!files?.length)return;
   historyOcrBusy=true;
@@ -1516,6 +1571,7 @@ async function scanHistoryImages(files){
   $("historyProgressBar").style.width="2%";
   $("historyProgressTitle").textContent=`Reading ${files.length} history image${files.length===1?"":"s"}…`;
   let combined="";
+  let allCandidates=[];
   try{
     if(!globalThis.Tesseract?.createWorker)throw new Error("OCR engine did not load.");
     const worker=await Tesseract.createWorker("eng",1,{
@@ -1523,18 +1579,35 @@ async function scanHistoryImages(files){
         if(m.status)$("historyProgressStatus").textContent=m.status.replace(/_/g," ");
       }
     });
+
+    // Pre-build slices so progress reflects the real amount of OCR work.
+    const jobs=[];
     for(let i=0;i<files.length;i++){
-      $("historyProgressStatus").textContent=`Image ${i+1} of ${files.length}`;
-      const result=await worker.recognize(files[i]);
-      combined+=`\n\n===== IMAGE ${i+1} =====\n${result?.data?.text||""}`;
-      $("historyProgressBar").style.width=`${Math.round(((i+1)/files.length)*100)}%`;
+      const slices=await prepareHistoryOcrSlices(files[i]);
+      slices.forEach((slice,j)=>jobs.push({fileIndex:i,sliceIndex:j,totalSlices:slices.length,...slice}));
+    }
+
+    for(let j=0;j<jobs.length;j++){
+      const job=jobs[j];
+      $("historyProgressStatus").textContent=`Image ${job.fileIndex+1} • ${job.label} • ${j+1}/${jobs.length}`;
+      const result=await worker.recognize(job.image);
+      const text=result?.data?.text||"";
+      combined+=`\n\n===== IMAGE ${job.fileIndex+1} • ${job.label.toUpperCase()} =====\n${text}`;
+      const parsed=parseBetMgmHistoryText(text);
+      allCandidates.push(...parsed);
+      $("historyProgressBar").style.width=`${Math.round(((j+1)/jobs.length)*100)}%`;
     }
     await worker.terminate();
+
     $("historyRawText").value=combined.trim();
-    historyImportCandidates=parseBetMgmHistoryText(combined);
+
+    // Re-run duplicate/match logic after all slices are combined. Overlapping
+    // slices can deliberately see the same BetMGM card twice.
+    historyImportCandidates=findHistoryDuplicates(allCandidates);
     renderHistoryReview();
+
     $("historyProgressTitle").textContent="History scan complete";
-    $("historyProgressStatus").textContent="Review the detected spread wagers below.";
+    $("historyProgressStatus").textContent=`Read ${jobs.length} enlarged section${jobs.length===1?"":"s"}. Review Stake, Payout, and Result before importing.`;
   }catch(err){
     $("historyProgressTitle").textContent="History scan failed";
     $("historyProgressStatus").textContent=err.message||String(err);
@@ -2343,7 +2416,7 @@ $("clearBetsBtn").addEventListener("click",async()=>{if(confirm(cloudUser?"Clear
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=94b").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=94c").catch(()=>{}));}
 (async()=>{
   renderLiveBets();
   renderBetMgmPerformance();

@@ -261,3 +261,7 @@ dialog{width:min(720px,calc(100vw - 28px));border:1px solid #365344;background:#
 /* v0.9.4b Existing-ledger match + update */
 .history-review-card.match{border-color:#416d83;background:rgba(82,155,198,.045)}
 .history-status.match{color:#ccecff;border-color:#416d83;background:rgba(82,155,198,.07)}
+
+
+/* v0.9.4c Long screenshot OCR fix */
+.history-progress strong{color:#dff4ff}
