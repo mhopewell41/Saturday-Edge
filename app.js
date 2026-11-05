@@ -1190,14 +1190,43 @@ function parseBetMgmSelectionLine(line){
   const price=prices.length?prices[prices.length-1]:null;
   return {team,line:spread,price,raw:s};
 }
-function splitBetMgmHistoryCards(text){
+function isHistoryResultLine(line){
+  return /^(won|winner|win|lost|loss|loser|push|pushed|void|voided|cancelled|canceled|refunded)$/i.test(String(line||"").trim());
+}
+function isHistoryTicketLine(line){
+  return /(?:bet\s*slip|ticket|wager)\s*(?:id|#|number|no\.?)?\s*:?\s*[A-Z0-9\-]{5,}/i.test(String(line||""));
+}
+function splitBetMgmHistoryCards(text,{requireTicketBoundary=false}={}){
   const lines=ocrLines(text);
-  const starts=[];
-  lines.forEach((line,i)=>{
-    if(/^(won|lost|push|pushed|void|voided)$/i.test(line.trim()))starts.push(i);
-  });
-  if(!starts.length)return [];
   const cards=[];
+  let cursor=0;
+
+  // v0.9.4d: Bet slip ID is the hard end-of-card anchor. This prevents an OCR
+  // overlap or a missed Lost label from allowing one card's result/team/odds
+  // to bleed into the next wager.
+  for(let i=0;i<lines.length;i++){
+    if(!isHistoryTicketLine(lines[i]))continue;
+    const segment=lines.slice(cursor,i+1);
+    let localStart=segment.findIndex(isHistoryResultLine);
+    if(localStart<0){
+      // If OCR missed the colored Won/Lost badge, start near the first spread
+      // selection instead of reaching backward into the previous card.
+      const spreadIdx=segment.findIndex(x=>/^spread$/i.test(x.trim()));
+      if(spreadIdx>0)localStart=Math.max(0,spreadIdx-2);
+      else localStart=0;
+    }
+    const card=segment.slice(localStart);
+    if(card.some(x=>/\bspread\b/i.test(x)))cards.push(card);
+    cursor=i+1;
+  }
+
+  if(cards.length||requireTicketBoundary)return cards;
+
+  // Paste-text fallback for books/screenshots where OCR loses Bet slip ID.
+  // Result headers may still define cards, but this path is intentionally not
+  // used for overlapping image slices.
+  const starts=[];
+  lines.forEach((line,i)=>{ if(isHistoryResultLine(line))starts.push(i); });
   for(let j=0;j<starts.length;j++){
     const start=starts[j],end=j+1<starts.length?starts[j+1]:lines.length;
     const card=lines.slice(start,end);
@@ -1205,9 +1234,28 @@ function splitBetMgmHistoryCards(text){
   }
   return cards;
 }
+function historyResultForCard(card){
+  const lines=Array.isArray(card)?card:ocrLines(card);
+  const block=lines.join("\n");
+
+  // First choice: an explicit result badge anywhere inside THIS card only.
+  const badge=lines.find(isHistoryResultLine);
+  if(badge)return historyResult(badge);
+
+  // OCR can miss white text on BetMGM's red/green result badges. On the
+  // Settled screen the payout field gives us a safe card-local fallback.
+  const stake=parseStakeAmount(block);
+  const payout=historyPayout(block);
+  if(Number.isFinite(payout)){
+    if(Number.isFinite(stake)&&Math.abs(payout-stake)<0.01)return "PUSH";
+    if(payout>0)return "WIN";
+  }
+  if(/payout\s*:?\s*(?:[-—–]|$)/im.test(block))return "LOSS";
+  return "PENDING";
+}
 function parseBetMgmCard(card,index){
   const block=card.join("\n");
-  const result=historyResult(card[0]||block);
+  const result=historyResultForCard(card);
   const spreadIdx=card.findIndex(x=>/^spread$/i.test(x.trim()));
   let selection=null;
   if(spreadIdx>0){
@@ -1388,18 +1436,19 @@ function matchupNearSelection(lines,sel){
   const names=win.map(cleanTeamName).filter(plausibleTeamName).filter(v=>!teamNamesMatch(v,sel.team));
   return {away:"",home:names[0]||""};
 }
-function parseBetMgmHistoryText(text){
+function parseBetMgmHistoryText(text,{requireTicketBoundary=false}={}){
   const clean=normalizeOcrText(text);
 
-  // Prefer BetMGM's actual card structure: Won/Lost header → selection → Spread →
-  // matchup → kickoff → Stake/Payout → Bet slip ID.
-  const cards=splitBetMgmHistoryCards(clean);
+  // Prefer BetMGM's actual card structure. v0.9.4d uses Bet slip ID as the
+  // hard card boundary, then resolves Won/Lost/Push only inside that card.
+  const cards=splitBetMgmHistoryCards(clean,{requireTicketBoundary});
   if(cards.length){
     const parsed=cards.map((card,index)=>parseBetMgmCard(card,index)).filter(Boolean);
     return findHistoryDuplicates(parsed);
   }
+  if(requireTicketBoundary)return [];
 
-  // Fallback for OCR that loses the Won/Lost card headers.
+  // Fallback for pasted OCR that loses both Bet slip IDs and Won/Lost headers.
   const lines=ocrLines(clean);
   const selections=allSpreadSelections(lines);
   const candidates=selections.map((sel,index)=>{
@@ -1593,7 +1642,7 @@ async function scanHistoryImages(files){
       const result=await worker.recognize(job.image);
       const text=result?.data?.text||"";
       combined+=`\n\n===== IMAGE ${job.fileIndex+1} • ${job.label.toUpperCase()} =====\n${text}`;
-      const parsed=parseBetMgmHistoryText(text);
+      const parsed=parseBetMgmHistoryText(text,{requireTicketBoundary:true});
       allCandidates.push(...parsed);
       $("historyProgressBar").style.width=`${Math.round(((j+1)/jobs.length)*100)}%`;
     }

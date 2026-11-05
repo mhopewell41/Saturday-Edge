@@ -1,4 +1,4 @@
-const CACHE = 'saturday-edge-shell-v094c';
+const CACHE = 'saturday-edge-shell-v094d';
 const SHARE_CACHE = 'saturday-edge-share-v1';
 const SHARED_BET_SLIP_KEY = './shared-bet-slip';
 const SHARED_HISTORY_TEXT_KEY = './shared-history-text';
