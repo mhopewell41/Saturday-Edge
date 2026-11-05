@@ -1533,7 +1533,7 @@ function renderHistoryReview(){
   }).join("");
   $("historyReviewTitle").textContent=`${historyImportCandidates.length} candidate wager${historyImportCandidates.length===1?"":"s"} found`;
   $("historyImportSummary").textContent=`${cleanCount-matchCount} new • ${matchCount} match${matchCount===1?"":"es"} to update • ${dupCount} duplicate${dupCount===1?"":"s"} • ${blockedCount} unsupported. Review checked rows before import.`;
-  btn.disabled=cleanCount===0;
+  btn.disabled=false;
 }
 function collectHistoryReviewRows(){
   return [...$("historyReviewList").querySelectorAll(".history-review-card")].map(card=>{
@@ -1559,6 +1559,24 @@ function collectHistoryReviewRows(){
       }
     };
   });
+}
+function refreshHistoryImportButton(){
+  const btn=$("importSelectedHistoryBtn");
+  if(!btn)return;
+  const cards=[...$("historyReviewList").querySelectorAll(".history-review-card")];
+  if(!cards.length){btn.disabled=true;return;}
+
+  let selectable=0,selected=0;
+  for(const card of cards){
+    const pick=card.querySelector(".history-pick");
+    if(!pick||pick.disabled)continue;
+    selectable++;
+    if(pick.checked)selected++;
+  }
+  // Keep the action available whenever review cards exist. If nothing is
+  // selected, clicking it gives a useful message instead of appearing dead.
+  btn.disabled=selectable===0;
+  btn.textContent=selected?`Import Selected Wagers (${selected})`:"Import Selected Wagers";
 }
 async function historyImageBitmap(file){
   if(globalThis.createImageBitmap)return await createImageBitmap(file);
@@ -1781,7 +1799,7 @@ function importReviewedHistory(){
   saveBets(bets);
   $("historyImportSummary").textContent=`BetMGM history applied: ${added} new • ${updated} existing updated${skipped?` • ${skipped} skipped`:""}. Cloud sync will carry the changes to your other device.`;
   $("betCheckStatus").textContent=`📚 BetMGM history: ${added} new wager${added===1?"":"s"} • ${updated} existing updated.`;
-  if(added||updated)$("importSelectedHistoryBtn").disabled=true;
+  if(added||updated){$("importSelectedHistoryBtn").disabled=true;$("importSelectedHistoryBtn").textContent="Imported ✓";}
 }
 function clearBetSlipPreviewUrl(){
   if(currentBetSlipObjectUrl){URL.revokeObjectURL(currentBetSlipObjectUrl);currentBetSlipObjectUrl=null;}
@@ -2416,6 +2434,22 @@ $("historyClearReviewBtn").addEventListener("click",()=>{
   historyImportCandidates=[];$("historyPasteText").value="";$("historyRawText").value="";renderHistoryReview();
 });
 $("importSelectedHistoryBtn").addEventListener("click",importReviewedHistory);
+$("historyReviewList").addEventListener("change",e=>{
+  const card=e.target.closest?.(".history-review-card");
+  if(!card){refreshHistoryImportButton();return;}
+  const pick=card.querySelector(".history-pick");
+  if(e.target!==pick && pick && !pick.disabled){
+    const sport=card.querySelector(".hr-sport")?.value;
+    const away=card.querySelector(".hr-away")?.value.trim();
+    const home=card.querySelector(".hr-home")?.value.trim();
+    const team=card.querySelector(".hr-team")?.value.trim();
+    const line=Number(card.querySelector(".hr-line")?.value);
+    const price=Number(card.querySelector(".hr-price")?.value);
+    if(EDGE_SPORTS[sport]&&away&&home&&team&&Number.isFinite(line)&&Number.isFinite(price))pick.checked=true;
+  }
+  refreshHistoryImportButton();
+});
+$("historyReviewList").addEventListener("input",refreshHistoryImportButton);
 $("importBetSlipBtn").addEventListener("click",openBetSlipFilePicker);
 $("betSlipFileInput").addEventListener("change",e=>{const file=e.target.files?.[0];if(file)recognizeBetSlip(file);e.target.value="";});
 $("betSlipImportClose").addEventListener("click",()=>{$("betSlipImportDialog").close();clearBetSlipPreviewUrl();});
@@ -2465,7 +2499,7 @@ $("clearBetsBtn").addEventListener("click",async()=>{if(confirm(cloudUser?"Clear
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=94c").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=94e").catch(()=>{}));}
 (async()=>{
   renderLiveBets();
   renderBetMgmPerformance();
