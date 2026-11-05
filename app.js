@@ -1157,8 +1157,116 @@ function parseBetSlipText(text){
 }
 
 function historyTicketId(text){
-  const m=String(text||"").match(/(?:bet|ticket|wager)\s*(?:id|#|number|no\.?)\s*:?\s*([A-Z0-9\-]{5,})/i);
+  const m=String(text||"").match(/(?:bet\s*slip|bet|ticket|wager)\s*(?:id|#|number|no\.?)\s*:?\s*([A-Z0-9\-]{5,})/i);
   return m?m[1]:null;
+}
+function historyPayout(text){
+  const m=String(text||"").match(/payout\s*:?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)/i);
+  if(!m)return null;
+  const n=Number(m[1].replace(/,/g,""));
+  return Number.isFinite(n)?n:null;
+}
+function historyPlacedAt(lines){
+  const date=/\b(\d{1,2}\/\d{1,2}\/(?:\d{2}|\d{4}))\b/;
+  const time=/\b(\d{1,2}:\d{2}\s*(?:AM|PM))\b/i;
+  for(const line of [...lines].reverse()){
+    if(!/\bTN\b/i.test(line))continue;
+    const dm=line.match(date),tm=line.match(time);
+    if(!dm||!tm)continue;
+    const d=new Date(`${dm[1]} ${tm[1]}`);
+    if(!Number.isNaN(d.getTime()))return d.toISOString();
+  }
+  return null;
+}
+function parseBetMgmSelectionLine(line){
+  const s=String(line||"").trim();
+  const m=s.match(/^(.{2,70}?)\s+([+\-]\d{1,2}(?:\.\d+)?)\b(.*)$/);
+  if(!m)return null;
+  const team=cleanTeamName(m[1]),spread=Number(m[2]),tail=m[3]||"";
+  if(!plausibleTeamName(team)||!Number.isFinite(spread)||Math.abs(spread)>70)return null;
+  const prices=[...tail.matchAll(/([+\-]\d{3,4})\b/g)].map(x=>Number(x[1])).filter(Number.isFinite);
+  // BetMGM boost cards can show crossed-out old odds followed by the new odds.
+  // The right-most/last price is the active one.
+  const price=prices.length?prices[prices.length-1]:null;
+  return {team,line:spread,price,raw:s};
+}
+function splitBetMgmHistoryCards(text){
+  const lines=ocrLines(text);
+  const starts=[];
+  lines.forEach((line,i)=>{
+    if(/^(won|lost|push|pushed|void|voided)$/i.test(line.trim()))starts.push(i);
+  });
+  if(!starts.length)return [];
+  const cards=[];
+  for(let j=0;j<starts.length;j++){
+    const start=starts[j],end=j+1<starts.length?starts[j+1]:lines.length;
+    const card=lines.slice(start,end);
+    if(card.some(x=>/\bspread\b/i.test(x)))cards.push(card);
+  }
+  return cards;
+}
+function parseBetMgmCard(card,index){
+  const block=card.join("\n");
+  const result=historyResult(card[0]||block);
+  const spreadIdx=card.findIndex(x=>/^spread$/i.test(x.trim()));
+  let selection=null;
+  if(spreadIdx>0){
+    for(let i=spreadIdx-1;i>=0&&i>=spreadIdx-3;i--){
+      selection=parseBetMgmSelectionLine(card[i]);
+      if(selection)break;
+    }
+  }
+  if(!selection){
+    for(const line of card){
+      selection=parseBetMgmSelectionLine(line);
+      if(selection)break;
+    }
+  }
+  if(!selection)return null;
+
+  let matchupLine="";
+  if(spreadIdx>=0){
+    for(let i=spreadIdx+1;i<Math.min(card.length,spreadIdx+5);i++){
+      if(/(?:\s@|\sat\s|vs\.?|versus)/i.test(card[i])){matchupLine=card[i];break;}
+    }
+  }
+  if(!matchupLine)matchupLine=card.find(x=>/(?:\s@|\sat\s|vs\.?|versus)/i.test(x))||"";
+
+  let neutralSite=/neutral venue/i.test(matchupLine);
+  matchupLine=matchupLine.replace(/\s*\(Neutral Venue\)\s*/ig," ").replace(/\s{2,}/g," ").trim();
+  const mm=matchupLine.match(/^(.{2,70}?)\s+(?:@|at|vs\.?|versus|v\.)\s+(.{2,70}?)$/i);
+  const away=mm?cleanTeamName(mm[1]):"";
+  const home=mm?cleanTeamName(mm[2]):"";
+
+  const kickoffLocal=parseTicketDateTime(card);
+  const kickoff=kickoffLocal?new Date(kickoffLocal).toISOString():new Date().toISOString();
+  const placedAt=historyPlacedAt(card)||kickoff;
+  const stake=parseStakeAmount(block);
+  const payout=historyPayout(block);
+  const ticketId=historyTicketId(block);
+  const competition=detectCompetition(block);
+  const sport=detectBetSport(block)||detectBetSport(`${away} ${home} ${selection.team}`);
+  const unsupported=historyUnsupportedReason(block);
+  const complete=Boolean(EDGE_SPORTS[sport]&&away&&home&&selection.team&&Number.isFinite(selection.line)&&Number.isFinite(selection.price));
+
+  return {
+    reviewId:`hist-card-${Date.now()}-${index}`,
+    ticketId,
+    sport:EDGE_SPORTS[sport]?sport:"",
+    market:"SPREAD",
+    kind:detectBetKind(block),
+    result,
+    away,home,team:selection.team,line:selection.line,price:Number.isFinite(selection.price)?selection.price:parseAmericanOdds(block)??-110,
+    units:1,
+    stake:Number.isFinite(stake)?stake:null,
+    payout:Number.isFinite(payout)?payout:null,
+    kickoff,createdAt:placedAt,
+    competition:competition||null,
+    neutralSite,
+    sportsbook:"BetMGM",importSource:"BETMGM_HISTORY",
+    oddsBoost:/odds boost/i.test(block),
+    unsupported,complete,raw:block
+  };
 }
 function historyResult(text){
   const t=String(text||"").toLowerCase();
@@ -1240,7 +1348,18 @@ function matchupNearSelection(lines,sel){
   return {away:"",home:names[0]||""};
 }
 function parseBetMgmHistoryText(text){
-  const clean=normalizeOcrText(text),lines=ocrLines(clean);
+  const clean=normalizeOcrText(text);
+
+  // Prefer BetMGM's actual card structure: Won/Lost header → selection → Spread →
+  // matchup → kickoff → Stake/Payout → Bet slip ID.
+  const cards=splitBetMgmHistoryCards(clean);
+  if(cards.length){
+    const parsed=cards.map((card,index)=>parseBetMgmCard(card,index)).filter(Boolean);
+    return findHistoryDuplicates(parsed);
+  }
+
+  // Fallback for OCR that loses the Won/Lost card headers.
+  const lines=ocrLines(clean);
   const selections=allSpreadSelections(lines);
   const candidates=selections.map((sel,index)=>{
     const win=historyWindow(lines,sel.idx,10);
@@ -1250,6 +1369,7 @@ function parseBetMgmHistoryText(text){
     const sport=detectBetSport(block)||detectBetSport(`${matchup.away} ${matchup.home} ${sel.team}`);
     const price=Number.isFinite(sel.price)?sel.price:parseAmericanOdds(block);
     const stake=parseStakeAmount(block);
+    const payout=historyPayout(block);
     const kickoffLocal=parseTicketDateTime(win);
     const kickoff=kickoffLocal?new Date(kickoffLocal).toISOString():new Date().toISOString();
     const result=historyResult(block);
@@ -1266,9 +1386,10 @@ function parseBetMgmHistoryText(text){
       kind:detectBetKind(block),
       result,
       away,home,team:sel.team,line:sel.line,price:Number.isFinite(price)?price:-110,
-      units:1,stake:Number.isFinite(stake)?stake:null,
-      kickoff,createdAt:kickoff,competition:competition||null,
+      units:1,stake:Number.isFinite(stake)?stake:null,payout:Number.isFinite(payout)?payout:null,
+      kickoff,createdAt:historyPlacedAt(win)||kickoff,competition:competition||null,
       sportsbook:"BetMGM",importSource:"BETMGM_HISTORY",
+      oddsBoost:/odds boost/i.test(block),
       unsupported,complete,raw:block
     };
   });
@@ -1310,9 +1431,11 @@ function renderHistoryReview(){
         <label>Spread<input class="hr-line" type="number" step="0.5" value="${Number.isFinite(c.line)?c.line:""}" /></label>
         <label>Odds<input class="hr-price" type="number" step="1" value="${Number.isFinite(c.price)?c.price:-110}" /></label>
         <label>Stake $<input class="hr-stake" type="number" step="0.01" min="0" value="${Number.isFinite(c.stake)?c.stake:""}" /></label>
+        <label>Payout $<input class="hr-payout" type="number" step="0.01" min="0" value="${Number.isFinite(c.payout)?c.payout:""}" /></label>
         <label>League<input class="hr-competition" value="${escapeHtml(c.competition||"")}" /></label>
         <label>Ticket ID<input class="hr-ticket" value="${escapeHtml(c.ticketId||"")}" /></label>
       </div>
+      ${(c.oddsBoost||c.neutralSite)?`<div class="history-flags">${c.oddsBoost?`<span>⚡ Odds boost</span>`:""}${c.neutralSite?`<span>🏟 Neutral venue</span>`:""}</div>`:""}
       <details><summary>OCR block</summary><pre>${escapeHtml(c.raw||"")}</pre></details>
     </article>`;
   }).join("");
@@ -1325,6 +1448,7 @@ function collectHistoryReviewRows(){
     const i=Number(card.dataset.historyIndex),base=historyImportCandidates[i]||{};
     const pick=card.querySelector(".history-pick");
     const stakeValue=card.querySelector(".hr-stake").value;
+    const payoutValue=card.querySelector(".hr-payout").value;
     return {
       selected:Boolean(pick?.checked&&!pick.disabled),
       data:{
@@ -1338,6 +1462,7 @@ function collectHistoryReviewRows(){
         line:Number(card.querySelector(".hr-line").value),
         price:Number(card.querySelector(".hr-price").value),
         stake:stakeValue===""?null:Number(stakeValue),
+        payout:payoutValue===""?null:Number(payoutValue),
         competition:card.querySelector(".hr-competition").value.trim()||null
       }
     };
@@ -1402,10 +1527,22 @@ async function maybeOpenSharedHistory(){
 }
 function historyGradeMoney(b){
   const r=String(b.result||"PENDING").toUpperCase();
-  const units=Number(b.units)||1,stake=Number(b.stake);
+  const units=Number(b.units)||1,stake=Number(b.stake),payout=Number(b.payout);
   if(!["WIN","LOSS","PUSH"].includes(r))return b;
-  b.unitsProfit=r==="WIN"?americanWinProfit(units,b.price):r==="LOSS"?-units:0;
-  if(Number.isFinite(stake)&&stake>0)b.dollarsProfit=r==="WIN"?americanWinProfit(stake,b.price):r==="LOSS"?-stake:0;
+
+  if(r==="WIN"&&Number.isFinite(stake)&&stake>0&&Number.isFinite(payout)&&payout>=stake){
+    const cashProfit=payout-stake;
+    b.dollarsProfit=cashProfit;
+    b.unitsProfit=units*(cashProfit/stake);
+  }else{
+    b.unitsProfit=r==="WIN"?americanWinProfit(units,b.price):r==="LOSS"?-units:0;
+    if(Number.isFinite(stake)&&stake>0)b.dollarsProfit=r==="WIN"?americanWinProfit(stake,b.price):r==="LOSS"?-stake:0;
+  }
+  if(r==="PUSH"){
+    b.unitsProfit=0;
+    if(Number.isFinite(stake)&&stake>0)b.dollarsProfit=0;
+  }
+
   b.gradedAt=new Date().toISOString();
   b.gradeSource="BETMGM_HISTORY";
   return b;
@@ -1427,6 +1564,8 @@ function importReviewedHistory(){
       gameId:manualGameId(c.away,c.home,kickoff,c.sport),cfbdGameId:null,
       away:c.away,home:c.home,team:c.team,line:Number(c.line),price:Number(c.price),
       units:Number(c.units)||1,stake:Number.isFinite(Number(c.stake))?Number(c.stake):null,
+      payout:Number.isFinite(Number(c.payout))?Number(c.payout):null,
+      neutralSite:Boolean(c.neutralSite),oddsBoost:Boolean(c.oddsBoost),
       edge:null,projectedLine:null,classification:"HISTORY_IMPORT",
       notes:c.ticketId?`BetMGM history • Ticket ${c.ticketId}`:"BetMGM history import"
     });
@@ -2057,6 +2196,16 @@ $("betMgmHistoryClose").addEventListener("click",()=>$("betMgmHistoryDialog").cl
 $("chooseHistoryImagesBtn").addEventListener("click",()=>$("historyImagesInput").click());
 $("historyImagesInput").addEventListener("change",e=>{const files=[...(e.target.files||[])];if(files.length)scanHistoryImages(files);e.target.value="";});
 $("scanHistoryTextBtn").addEventListener("click",()=>scanPastedHistoryText($("historyPasteText").value));
+$("historySetUnknownCfbBtn").addEventListener("click",()=>{
+  historyImportCandidates=historyImportCandidates.map(c=>c.sport?c:{...c,sport:"CFB",complete:Boolean(c.away&&c.home&&c.team&&Number.isFinite(c.line)&&Number.isFinite(c.price))});
+  historyImportCandidates=findHistoryDuplicates(historyImportCandidates);
+  renderHistoryReview();
+});
+$("historySetUnknownCbbBtn").addEventListener("click",()=>{
+  historyImportCandidates=historyImportCandidates.map(c=>c.sport?c:{...c,sport:"CBB",complete:Boolean(c.away&&c.home&&c.team&&Number.isFinite(c.line)&&Number.isFinite(c.price))});
+  historyImportCandidates=findHistoryDuplicates(historyImportCandidates);
+  renderHistoryReview();
+});
 $("historySelectAllBtn").addEventListener("click",()=>{
   $("historyReviewList").querySelectorAll(".history-pick:not(:disabled)").forEach(x=>x.checked=true);
 });
@@ -2113,7 +2262,7 @@ $("clearBetsBtn").addEventListener("click",async()=>{if(confirm(cloudUser?"Clear
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=94").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=94a").catch(()=>{}));}
 (async()=>{
   renderLiveBets();
   renderBetMgmPerformance();
