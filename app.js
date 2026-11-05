@@ -1284,25 +1284,64 @@ function historyUnsupportedReason(text){
   if(/\bcash(?:ed)?\s*out\b/.test(t)) return "Cash out";
   return "";
 }
-function historyFingerprint(b){
-  if(b.ticketId) return `ticket:${String(b.ticketId).toLowerCase()}`;
-  const day=(b.kickoff||b.createdAt||"").slice(0,10);
+function historyTicketKey(b){
+  return b?.ticketId ? `ticket:${String(b.ticketId).trim().toLowerCase()}` : null;
+}
+function historySemanticKey(b){
+  const clean=v=>String(v||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+  const day=(b?.kickoff||b?.createdAt||"").slice(0,10);
+  const stake=Number(b?.stake);
   return [
-    normalizeSport(b.sport),String(b.away||"").toLowerCase().replace(/\W/g,""),
-    String(b.home||"").toLowerCase().replace(/\W/g,""),
-    String(b.team||"").toLowerCase().replace(/\W/g,""),
-    Number(b.line),Number(b.price),Number(b.stake||0).toFixed(2),day
+    b?.sport?normalizeSport(b.sport):"",
+    clean(b?.away),clean(b?.home),clean(b?.team),
+    Number.isFinite(Number(b?.line))?Number(b.line).toFixed(1):"",
+    Number.isFinite(stake)&&stake>0?stake.toFixed(2):"",
+    day
   ].join("|");
+}
+function historyFingerprint(b){
+  return historyTicketKey(b)||historySemanticKey(b);
+}
+function historySameCalendarDay(a,b){
+  const da=String(a?.kickoff||a?.createdAt||"").slice(0,10);
+  const db=String(b?.kickoff||b?.createdAt||"").slice(0,10);
+  return !da||!db||da===db;
+}
+function historySemanticMatch(a,b){
+  const sa=a?.sport?normalizeSport(a.sport):"", sb=b?.sport?normalizeSport(b.sport):"";
+  if(sa&&sb&&sa!==sb)return false;
+  if(!teamNamesMatch(a?.away,b?.away)||!teamNamesMatch(a?.home,b?.home)||!teamNamesMatch(a?.team,b?.team))return false;
+  if(Math.abs(Number(a?.line)-Number(b?.line))>0.01)return false;
+  const as=Number(a?.stake),bs=Number(b?.stake);
+  if(Number.isFinite(as)&&as>0&&Number.isFinite(bs)&&bs>0&&Math.abs(as-bs)>0.01)return false;
+  return historySameCalendarDay(a,b);
+}
+function findExistingHistoryMatch(candidate,existing,claimedIds=new Set()){
+  const ticket=historyTicketKey(candidate);
+  if(ticket){
+    const direct=existing.find(b=>historyTicketKey(b)===ticket&&!claimedIds.has(String(b.id)));
+    if(direct)return direct;
+  }
+  return existing.find(b=>historySemanticMatch(candidate,b)&&!claimedIds.has(String(b.id)))||null;
 }
 function findHistoryDuplicates(candidates){
   const existing=getBets();
-  const seen=new Set(existing.map(historyFingerprint));
-  const local=new Set();
+  const claimed=new Set();
+  const batchTickets=new Set();
+  const batchSemantic=new Set();
+
   return candidates.map(c=>{
-    const fp=historyFingerprint(c);
-    const duplicate=seen.has(fp)||local.has(fp);
-    local.add(fp);
-    return {...c,duplicate};
+    const match=findExistingHistoryMatch(c,existing,claimed);
+    if(match){
+      claimed.add(String(match.id));
+      return {...c,duplicate:false,matchExistingId:String(match.id),matchType:historyTicketKey(match)&&historyTicketKey(c)===historyTicketKey(match)?"TICKET":"SEMANTIC"};
+    }
+
+    const tk=historyTicketKey(c),sk=historySemanticKey(c);
+    const batchDuplicate=(tk&&batchTickets.has(tk))||batchSemantic.has(sk);
+    if(tk)batchTickets.add(tk);
+    batchSemantic.add(sk);
+    return {...c,duplicate:Boolean(batchDuplicate),matchExistingId:null,matchType:null};
   });
 }
 function allSpreadSelections(lines){
@@ -1411,15 +1450,17 @@ function renderHistoryReview(){
     $("historyImportSummary").textContent="Nothing has been added to your ledger.";
     btn.disabled=true;return;
   }
-  let cleanCount=0,dupCount=0,blockedCount=0;
+  let cleanCount=0,dupCount=0,blockedCount=0,matchCount=0;
   list.innerHTML=historyImportCandidates.map((c,i)=>{
-    const blocked=Boolean(c.unsupported),dup=Boolean(c.duplicate),ready=c.complete&&!blocked&&!dup;
-    if(ready)cleanCount++; if(dup)dupCount++; if(blocked)blockedCount++;
-    const status=dup?"DUPLICATE":blocked?`SKIP • ${c.unsupported}`:c.complete?"READY":"REVIEW";
-    const statusClass=dup||blocked?"bad":c.complete?"good":"warn";
+    const blocked=Boolean(c.unsupported),dup=Boolean(c.duplicate),matched=Boolean(c.matchExistingId);
+    const ready=c.complete&&!blocked&&!dup;
+    if(ready)cleanCount++; if(dup)dupCount++; if(blocked)blockedCount++; if(matched)matchCount++;
+    const status=matched?"MATCH • UPDATE":dup?"DUPLICATE":blocked?`SKIP • ${c.unsupported}`:c.complete?"READY":"REVIEW";
+    const statusClass=dup||blocked?"bad":matched?"match":c.complete?"good":"warn";
+    const actionLabel=matched?"Update existing":"Import";
     return `<article class="history-review-card ${statusClass}" data-history-index="${i}">
       <div class="history-review-top">
-        <label class="history-check"><input class="history-pick" type="checkbox" ${ready?"checked":""} ${dup||blocked?"disabled":""}/> Import</label>
+        <label class="history-check"><input class="history-pick" type="checkbox" ${ready?"checked":""} ${dup||blocked?"disabled":""}/> ${actionLabel}</label>
         <span class="history-status ${statusClass}">${escapeHtml(status)}</span>
       </div>
       <div class="history-edit-grid">
@@ -1440,7 +1481,7 @@ function renderHistoryReview(){
     </article>`;
   }).join("");
   $("historyReviewTitle").textContent=`${historyImportCandidates.length} candidate wager${historyImportCandidates.length===1?"":"s"} found`;
-  $("historyImportSummary").textContent=`${cleanCount} ready • ${dupCount} duplicate${dupCount===1?"":"s"} • ${blockedCount} unsupported. Review checked rows before import.`;
+  $("historyImportSummary").textContent=`${cleanCount-matchCount} new • ${matchCount} match${matchCount===1?"":"es"} to update • ${dupCount} duplicate${dupCount===1?"":"s"} • ${blockedCount} unsupported. Review checked rows before import.`;
   btn.disabled=cleanCount===0;
 }
 function collectHistoryReviewRows(){
@@ -1547,14 +1588,56 @@ function historyGradeMoney(b){
   b.gradeSource="BETMGM_HISTORY";
   return b;
 }
+function applyBetMgmHistoryToExisting(existing,c){
+  if(c.ticketId)existing.ticketId=c.ticketId;
+  existing.sportsbook="BetMGM";
+  existing.importSource=existing.importSource||"BETMGM_HISTORY_MATCH";
+  existing.historyMatchedAt=new Date().toISOString();
+
+  if(c.sport&&EDGE_SPORTS[c.sport])existing.sport=c.sport;
+  if(c.competition)existing.competition=c.competition;
+  if(Number.isFinite(Number(c.price)))existing.price=Number(c.price);
+  if(Number.isFinite(Number(c.stake))&&Number(c.stake)>0)existing.stake=Number(c.stake);
+  if(Number.isFinite(Number(c.payout)))existing.payout=Number(c.payout);
+  existing.neutralSite=Boolean(c.neutralSite||existing.neutralSite);
+  existing.oddsBoost=Boolean(c.oddsBoost||existing.oddsBoost);
+
+  if(["WIN","LOSS","PUSH"].includes(String(c.result||"").toUpperCase())){
+    existing.result=String(c.result).toUpperCase();
+    historyGradeMoney(existing);
+  }
+  existing.updatedAt=new Date().toISOString();
+  return existing;
+}
 function importReviewedHistory(){
   const reviewed=collectHistoryReviewRows().filter(x=>x.selected);
-  if(!reviewed.length){$("historyImportSummary").textContent="Select at least one clean wager to import.";return;}
-  const bets=getBets(),existing=new Set(bets.map(historyFingerprint));
-  let added=0,skipped=0;
+  if(!reviewed.length){$("historyImportSummary").textContent="Select at least one clean wager to import or update.";return;}
+
+  const bets=getBets();
+  let added=0,updated=0,skipped=0;
+
   for(const row of reviewed){
     const c=row.data;
     if(!EDGE_SPORTS[c.sport]||!c.away||!c.home||!c.team||!Number.isFinite(c.line)||!Number.isFinite(c.price)){skipped++;continue;}
+
+    let idx=c.matchExistingId?bets.findIndex(b=>String(b.id)===String(c.matchExistingId)):-1;
+    if(idx<0){
+      const match=findExistingHistoryMatch(c,bets);
+      idx=match?bets.findIndex(b=>String(b.id)===String(match.id)):-1;
+    }
+
+    if(idx>=0){
+      bets[idx]=applyBetMgmHistoryToExisting(bets[idx],c);
+      updated++;
+      continue;
+    }
+
+    const isDup=bets.some(b=>{
+      const tk=historyTicketKey(c);
+      return (tk&&historyTicketKey(b)===tk)||historySemanticMatch(c,b);
+    });
+    if(isDup){skipped++;continue;}
+
     const kickoff=c.kickoff||new Date().toISOString();
     const b=historyGradeMoney({
       id:makeBetId(),ticketId:c.ticketId||null,sport:c.sport,competition:c.competition||null,
@@ -1569,17 +1652,15 @@ function importReviewedHistory(){
       edge:null,projectedLine:null,classification:"HISTORY_IMPORT",
       notes:c.ticketId?`BetMGM history • Ticket ${c.ticketId}`:"BetMGM history import"
     });
-    const fp=historyFingerprint(b);
-    if(existing.has(fp)){skipped++;continue;}
-    existing.add(fp);bets.push(b);added++;
+    bets.push(b);added++;
   }
+
   bets.sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
   saveBets(bets);
-  $("historyImportSummary").textContent=`Imported ${added} BetMGM spread wager${added===1?"":"s"}${skipped?` • skipped ${skipped}`:""}. Cloud sync will carry them to your other device.`;
-  $("betCheckStatus").textContent=`📚 BetMGM history import added ${added} wager${added===1?"":"s"}.`;
-  if(added)$("importSelectedHistoryBtn").disabled=true;
+  $("historyImportSummary").textContent=`BetMGM history applied: ${added} new • ${updated} existing updated${skipped?` • ${skipped} skipped`:""}. Cloud sync will carry the changes to your other device.`;
+  $("betCheckStatus").textContent=`📚 BetMGM history: ${added} new wager${added===1?"":"s"} • ${updated} existing updated.`;
+  if(added||updated)$("importSelectedHistoryBtn").disabled=true;
 }
-
 function clearBetSlipPreviewUrl(){
   if(currentBetSlipObjectUrl){URL.revokeObjectURL(currentBetSlipObjectUrl);currentBetSlipObjectUrl=null;}
 }
@@ -2262,7 +2343,7 @@ $("clearBetsBtn").addEventListener("click",async()=>{if(confirm(cloudUser?"Clear
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=94a").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=94b").catch(()=>{}));}
 (async()=>{
   renderLiveBets();
   renderBetMgmPerformance();

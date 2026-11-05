@@ -256,3 +256,8 @@ dialog{width:min(720px,calc(100vw - 28px));border:1px solid #365344;background:#
 .history-flags span{padding:4px 7px;border:1px solid var(--line);border-radius:999px;color:#d9e9df;background:rgba(255,255,255,.025);font-size:8px;font-weight:850}
 .history-review-actions{flex-wrap:wrap}
 @media(min-width:1050px){.history-edit-grid{grid-template-columns:repeat(6,minmax(0,1fr))}}
+
+
+/* v0.9.4b Existing-ledger match + update */
+.history-review-card.match{border-color:#416d83;background:rgba(82,155,198,.045)}
+.history-status.match{color:#ccecff;border-color:#416d83;background:rgba(82,155,198,.07)}
