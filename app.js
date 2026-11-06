@@ -1016,6 +1016,11 @@ function detectBetSport(text){
   if(containsKnownTeam(t,NFL_TEAM_NAMES)) return "NFL";
   if(containsKnownTeam(t,NBA_TEAM_NAMES)) return "NBA";
 
+  // International club basketball tickets often display country abbreviations
+  // instead of league names. Require the parenthesized country form to avoid
+  // reading US college abbreviations as international competition.
+  if(/\((?:FRA|TUR|GER|ESP|EST|LAT|LTU|ISR|ITA|GRE|POL|CZE|SRB|CRO|SLO|ROU|BEL|NED|FIN|SWE|DEN|NOR|UKR|GBR|POR|AUT|SUI|HUN)\)/i.test(t)) return "INTL";
+  if(/\b(?:paris basketball|rostock seawolves|bc kalev\/cramo|ttt riga|fervir ramla|chalon\/saone)\b/i.test(t)) return "INTL";
   return "";
 }
 function detectBetKind(text){
@@ -1112,13 +1117,20 @@ function parseTicketDateTime(lines){
   const dateNum=/\b\d{1,2}[\/\-]\d{1,2}[\/\-](?:\d{2}|\d{4})\b/;
   const time=/\b\d{1,2}:\d{2}\s*(?:AM|PM)\b/i;
   for(let i=0;i<lines.length;i++){
-    const parts=[lines[i],lines[i+1]].filter(Boolean);
-    const joined=parts.join(" ");
-    if((month.test(joined)||dateNum.test(joined))&&time.test(joined)){
-      let candidate=joined.replace(/\bat\b/i," ");
-      if(month.test(candidate)&&!/\b20\d{2}\b/.test(candidate)) candidate=`${candidate} ${now.getFullYear()}`;
+    const joined=[lines[i],lines[i+1]].filter(Boolean).join(" ");
+    const tm=joined.match(time);
+    if(!tm)continue;
+    const numeric=joined.match(dateNum);
+    if(numeric){
+      // BetMGM uses "11/3/26 • 7:30 PM". The bullet is not parseable by Date.
+      const d=new Date(`${numeric[0]} ${tm[0]}`);
+      if(!Number.isNaN(d.getTime()))return isoToLocalDateTimeValue(d.toISOString());
+    }
+    if(month.test(joined)){
+      let candidate=joined.replace(/[•·|]/g," ").replace(/\bat\b/i," ");
+      if(!/\b20\d{2}\b/.test(candidate))candidate=`${candidate} ${now.getFullYear()}`;
       const d=new Date(candidate);
-      if(!Number.isNaN(d.getTime())) return isoToLocalDateTimeValue(d.toISOString());
+      if(!Number.isNaN(d.getTime()))return isoToLocalDateTimeValue(d.toISOString());
     }
   }
   return "";
@@ -1179,14 +1191,21 @@ function historyPlacedAt(lines){
   return null;
 }
 function parseBetMgmSelectionLine(line){
-  const s=String(line||"").trim();
-  const m=s.match(/^(.{2,70}?)\s+([+\-]\d{1,2}(?:\.\d+)?)\b(.*)$/);
+  const s=String(line||"").trim().replace(/[−–—]/g,"-");
+  // A real selection precedes a "Spread" label. Do not interpret the footer
+  // (TN • 11/3/26 …), dates, account headers, or a state abbreviation as a team.
+  if(/\b(?:TN|bet slip|payout|stake|spread|ticket|my bets)\b/i.test(s) &&
+    !/\b(?:Tennessee|Tn Tech)\b/i.test(s)) return null;
+  if(/[\/$]|\b(?:AM|PM)\b/i.test(s) && !/\bBC Kalev\/Cramo\b/i.test(s)){
+    // Slashes are permitted in legitimate club names, but not date/amount lines.
+    if(/\d{1,2}\/\d{1,2}|\$|\b(?:AM|PM)\b/i.test(s))return null;
+  }
+  const m=s.match(/^(.{3,70}?)\s+([+\-]\d{1,2}(?:\.\d+)?)\s*(.*)$/);
   if(!m)return null;
   const team=cleanTeamName(m[1]),spread=Number(m[2]),tail=m[3]||"";
-  if(!plausibleTeamName(team)||!Number.isFinite(spread)||Math.abs(spread)>70)return null;
-  const prices=[...tail.matchAll(/([+\-]\d{3,4})\b/g)].map(x=>Number(x[1])).filter(Number.isFinite);
-  // BetMGM boost cards can show crossed-out old odds followed by the new odds.
-  // The right-most/last price is the active one.
+  if(!plausibleTeamName(team)||team.length<3||!Number.isFinite(spread)||Math.abs(spread)>70)return null;
+  const prices=[...tail.matchAll(/([+\-]\d{3,4})\b/g)].map(x=>Number(x[1])).filter(v=>Number.isFinite(v)&&Math.abs(v)>=100);
+  // On an odds-boost ticket the right-most odds are the active odds.
   const price=prices.length?prices[prices.length-1]:null;
   return {team,line:spread,price,raw:s};
 }
@@ -1257,46 +1276,41 @@ function parseBetMgmCard(card,index){
   const block=card.join("\n");
   const result=historyResultForCard(card);
   const spreadIdx=card.findIndex(x=>/^spread$/i.test(x.trim()));
+  if(spreadIdx<0)return null;
+
+  // The printed selection is ABOVE the Spread label. Never search the footer.
   let selection=null;
-  if(spreadIdx>0){
-    for(let i=spreadIdx-1;i>=0&&i>=spreadIdx-3;i--){
-      selection=parseBetMgmSelectionLine(card[i]);
-      if(selection)break;
-    }
+  for(let i=spreadIdx-1;i>=0&&i>=Math.max(0,spreadIdx-4);i--){
+    selection=parseBetMgmSelectionLine(card[i]);
+    if(selection)break;
   }
-  if(!selection){
-    for(const line of card){
-      selection=parseBetMgmSelectionLine(line);
-      if(selection)break;
-    }
-  }
-  if(!selection)return null;
 
   let matchupLine="";
-  if(spreadIdx>=0){
-    for(let i=spreadIdx+1;i<Math.min(card.length,spreadIdx+5);i++){
-      if(/(?:\s@|\sat\s|vs\.?|versus)/i.test(card[i])){matchupLine=card[i];break;}
-    }
+  for(let i=spreadIdx+1;i<Math.min(card.length,spreadIdx+6);i++){
+    if(/(?:\s@|\sat\s|\s-\s|\svs\.?\s|versus)/i.test(card[i])){matchupLine=card[i];break;}
   }
-  if(!matchupLine)matchupLine=card.find(x=>/(?:\s@|\sat\s|vs\.?|versus)/i.test(x))||"";
-
-  let neutralSite=/neutral venue/i.test(matchupLine);
+  const neutralSite=/neutral venue/i.test(matchupLine);
   matchupLine=matchupLine.replace(/\s*\(Neutral Venue\)\s*/ig," ").replace(/\s{2,}/g," ").trim();
-  const mm=matchupLine.match(/^(.{2,70}?)\s+(?:@|at|vs\.?|versus|v\.)\s+(.{2,70}?)$/i);
+  const mm=matchupLine.match(/^(.{2,70}?)\s+(?:@|at|-|vs\.?|versus|v\.)\s+(.{2,70}?)$/i);
   const away=mm?cleanTeamName(mm[1]):"";
   const home=mm?cleanTeamName(mm[2]):"";
 
+  // If OCR pulls a footer fragment (e.g. "TN -11") in place of a real pick,
+  // clear the suspect fields and ask for review; never invent a spread.
+  const selectionMatches=Boolean(selection&&away&&home&&
+    (teamNamesMatch(selection.team,away)||teamNamesMatch(selection.team,home)));
+  const suspectSelection=Boolean(selection&&!selectionMatches);
+  if(!selectionMatches)selection=null;
+
   const kickoffLocal=parseTicketDateTime(card);
-  const kickoff=kickoffLocal?new Date(kickoffLocal).toISOString():new Date().toISOString();
+  const kickoff=kickoffLocal?new Date(kickoffLocal).toISOString():null;
   const placedAt=historyPlacedAt(card)||kickoff;
   const stake=parseStakeAmount(block);
   const payout=historyPayout(block);
   const ticketId=historyTicketId(block);
   const competition=detectCompetition(block);
-  const sport=detectBetSport(block)||detectBetSport(`${away} ${home} ${selection.team}`);
+  const sport=detectBetSport(block)||detectBetSport(`${away} ${home} ${selection?.team||""}`);
   const unsupported=historyUnsupportedReason(block);
-  const complete=Boolean(EDGE_SPORTS[sport]&&away&&home&&selection.team&&Number.isFinite(selection.line)&&Number.isFinite(selection.price));
-
   return {
     reviewId:`hist-card-${Date.now()}-${index}`,
     ticketId,
@@ -1304,18 +1318,19 @@ function parseBetMgmCard(card,index){
     market:"SPREAD",
     kind:detectBetKind(block),
     result,
-    away,home,team:selection.team,line:selection.line,price:Number.isFinite(selection.price)?selection.price:parseAmericanOdds(block)??-110,
-    units:1,
-    stake:Number.isFinite(stake)?stake:null,
+    away,home,team:selection?.team||"",line:selection?.line??null,
+    price:selection?.price??parseAmericanOdds((selection?.raw||""))??null,
+    units:1,stake:Number.isFinite(stake)?stake:null,
     payout:Number.isFinite(payout)?payout:null,
     kickoff,createdAt:placedAt,
-    competition:competition||null,
-    neutralSite,
+    competition:competition||null,neutralSite,
     sportsbook:"BetMGM",importSource:"BETMGM_HISTORY",
     oddsBoost:/odds boost/i.test(block),
-    unsupported,complete,raw:block
+    unsupported,complete:false,raw:block,
+    ocrWarnings:suspectSelection?["Selected team did not match the game; check Bet side and Spread"]:[]
   };
 }
+
 function historyResult(text){
   const t=String(text||"").toLowerCase();
   const m=t.match(/\b(won|winner|win|lost|loss|loser|push|pushed|void|voided|cancelled|canceled|refunded)\b/);
@@ -1444,7 +1459,7 @@ function parseBetMgmHistoryText(text,{requireTicketBoundary=false}={}){
   const cards=splitBetMgmHistoryCards(clean,{requireTicketBoundary});
   if(cards.length){
     const parsed=cards.map((card,index)=>parseBetMgmCard(card,index)).filter(Boolean);
-    return findHistoryDuplicates(parsed);
+    return findHistoryDuplicates(consolidateHistoryCandidates(parsed));
   }
   if(requireTicketBoundary)return [];
 
@@ -1461,7 +1476,7 @@ function parseBetMgmHistoryText(text,{requireTicketBoundary=false}={}){
     const stake=parseStakeAmount(block);
     const payout=historyPayout(block);
     const kickoffLocal=parseTicketDateTime(win);
-    const kickoff=kickoffLocal?new Date(kickoffLocal).toISOString():new Date().toISOString();
+    const kickoff=kickoffLocal?new Date(kickoffLocal).toISOString():null;
     const result=historyResult(block);
     const ticketId=historyTicketId(block);
     const competition=detectCompetition(block);
@@ -1485,6 +1500,77 @@ function parseBetMgmHistoryText(text,{requireTicketBoundary=false}={}){
   });
   return findHistoryDuplicates(candidates);
 }
+
+function historyValidationErrors(c){
+  const problems=[];
+  if(!EDGE_SPORTS[c.sport])problems.push("Sport");
+  if(!c.away)problems.push("Away");
+  if(!c.home)problems.push("Home");
+  if(!c.team)problems.push("Bet side");
+  else if(c.away&&c.home&&!teamNamesMatch(c.team,c.away)&&!teamNamesMatch(c.team,c.home)) problems.push("Bet side does not match matchup");
+  if(c.line===null||c.line===""||!Number.isFinite(Number(c.line))||Math.abs(Number(c.line))>70)problems.push("Spread");
+  if(c.price===null||c.price===""||!Number.isFinite(Number(c.price))||Math.abs(Number(c.price))<100)problems.push("Odds");
+  if(c.stake===null||c.stake===""||!Number.isFinite(Number(c.stake))||Number(c.stake)<=0)problems.push("Stake");
+  if(!["WIN","LOSS","PUSH"].includes(c.result))problems.push("Result");
+  if(!c.kickoff||Number.isNaN(new Date(c.kickoff).getTime()))problems.push("Game date/time");
+  if(!c.ticketId)problems.push("Ticket ID");
+  if(c.unsupported)problems.push(c.unsupported);
+  return problems;
+}
+function historyReviewData(card){
+  const base=historyImportCandidates[Number(card.dataset.historyIndex)]||{};
+  const val=sel=>card.querySelector(sel)?.value.trim()||"";
+  const num=sel=>{const x=val(sel);return x===""?null:Number(x);};
+  const date=val(".hr-kickoff");
+  const d=date?new Date(date):null;
+  return {
+    ...base,
+    ticketId:val(".hr-ticket")||null,
+    sport:val(".hr-sport"),result:val(".hr-result"),
+    away:val(".hr-away"),home:val(".hr-home"),team:val(".hr-team"),
+    line:num(".hr-line"),price:num(".hr-price"),stake:num(".hr-stake"),
+    payout:num(".hr-payout"),competition:val(".hr-competition")||null,
+    kickoff:d&&!Number.isNaN(d.getTime())?d.toISOString():null
+  };
+}
+function updateHistoryReviewCard(card){
+  const c=historyReviewData(card);
+  const errors=historyValidationErrors(c);
+  const matched=Boolean(c.matchExistingId),duplicate=Boolean(c.duplicate),blocked=Boolean(c.unsupported);
+  const pick=card.querySelector(".history-pick");
+  if(pick){
+    pick.disabled=blocked||duplicate;
+    if(pick.disabled||errors.length)pick.checked=false;
+  }
+  const status=card.querySelector(".history-status");
+  const message=card.querySelector(".history-errors");
+  if(message){message.textContent=errors.length?`Check: ${errors.join(", ")}`:"All required fields checked. Ready to import.";message.classList.toggle("ok",!errors.length);}
+  if(status){
+    status.textContent=duplicate?"DUPLICATE":blocked?`SKIP • ${c.unsupported}`:errors.length?"NEEDS REVIEW":matched?"MATCH • UPDATE":"READY";
+    status.className=`history-status ${duplicate||blocked?"bad":errors.length?"warn":matched?"match":"good"}`;
+  }
+  card.classList.remove("good","warn","bad","match");
+  card.classList.add(duplicate||blocked?"bad":errors.length?"warn":matched?"match":"good");
+  return errors;
+}
+// The same ticket often appears in 2 overlapping image sections. Choose the
+// most complete copy before duplicate checking; never merge two ticket IDs.
+function consolidateHistoryCandidates(candidates){
+  const byTicket=new Map(),unkeyed=[];
+  const quality=c=>{
+    const valid=historyValidationErrors(c);
+    return 100-valid.length*12+(c.away&&c.home?5:0)+(c.team?4:0)+
+      (Number.isFinite(Number(c.stake))?3:0)+(c.result!=="PENDING"?3:0);
+  };
+  for(const c of candidates){
+    const key=historyTicketKey(c);
+    if(!key){unkeyed.push(c);continue;}
+    const prev=byTicket.get(key);
+    if(!prev||quality(c)>quality(prev))byTicket.set(key,c);
+  }
+  return [...byTicket.values(),...unkeyed];
+}
+
 function historyResultOptions(value){
   return ["PENDING","WIN","LOSS","PUSH"].map(v=>`<option value="${v}" ${v===value?"selected":""}>${v}</option>`).join("");
 }
@@ -1501,83 +1587,63 @@ function renderHistoryReview(){
     $("historyImportSummary").textContent="Nothing has been added to your ledger.";
     btn.disabled=true;return;
   }
-  let cleanCount=0,dupCount=0,blockedCount=0,matchCount=0;
   list.innerHTML=historyImportCandidates.map((c,i)=>{
-    const blocked=Boolean(c.unsupported),dup=Boolean(c.duplicate),matched=Boolean(c.matchExistingId);
-    const ready=c.complete&&!blocked&&!dup;
-    if(ready)cleanCount++; if(dup)dupCount++; if(blocked)blockedCount++; if(matched)matchCount++;
-    const status=matched?"MATCH • UPDATE":dup?"DUPLICATE":blocked?`SKIP • ${c.unsupported}`:c.complete?"READY":"REVIEW";
-    const statusClass=dup||blocked?"bad":matched?"match":c.complete?"good":"warn";
-    const actionLabel=matched?"Update existing":"Import";
-    return `<article class="history-review-card ${statusClass}" data-history-index="${i}">
+    const errors=historyValidationErrors(c),blocked=Boolean(c.unsupported),dup=Boolean(c.duplicate),matched=Boolean(c.matchExistingId);
+    const ready=!errors.length&&!blocked&&!dup;
+    const status=dup?"DUPLICATE":blocked?`SKIP • ${c.unsupported}`:ready?(matched?"MATCH • UPDATE":"READY"):"NEEDS REVIEW";
+    const cls=dup||blocked?"bad":ready?(matched?"match":"good"):"warn";
+    return `<article class="history-review-card ${cls}" data-history-index="${i}">
       <div class="history-review-top">
-        <label class="history-check"><input class="history-pick" type="checkbox" ${ready?"checked":""} ${dup||blocked?"disabled":""}/> ${actionLabel}</label>
-        <span class="history-status ${statusClass}">${escapeHtml(status)}</span>
+        <label class="history-check"><input class="history-pick" type="checkbox" ${ready?"checked":""} ${dup||blocked?"disabled":""}/> ${matched?"Update existing":"Import"}</label>
+        <span class="history-status ${cls}">${escapeHtml(status)}</span>
       </div>
       <div class="history-edit-grid">
         <label>Sport<select class="hr-sport">${historySportOptions(c.sport)}</select></label>
         <label>Result<select class="hr-result">${historyResultOptions(c.result)}</select></label>
-        <label>Away<input class="hr-away" value="${escapeHtml(c.away)}" /></label>
-        <label>Home<input class="hr-home" value="${escapeHtml(c.home)}" /></label>
-        <label>Bet side<input class="hr-team" value="${escapeHtml(c.team)}" /></label>
+        <label>Away<input class="hr-away" value="${escapeHtml(c.away||"")}" /></label>
+        <label>Home<input class="hr-home" value="${escapeHtml(c.home||"")}" /></label>
+        <label>Bet side<input class="hr-team" value="${escapeHtml(c.team||"")}" /></label>
         <label>Spread<input class="hr-line" type="number" step="0.5" value="${Number.isFinite(c.line)?c.line:""}" /></label>
-        <label>Odds<input class="hr-price" type="number" step="1" value="${Number.isFinite(c.price)?c.price:-110}" /></label>
-        <label>Stake $<input class="hr-stake" type="number" step="0.01" min="0" value="${Number.isFinite(c.stake)?c.stake:""}" /></label>
+        <label>Odds<input class="hr-price" type="number" step="1" value="${Number.isFinite(c.price)?c.price:""}" /></label>
+        <label>Stake $<input class="hr-stake" type="number" step="0.01" min="0.01" value="${Number.isFinite(c.stake)?c.stake:""}" /></label>
         <label>Payout $<input class="hr-payout" type="number" step="0.01" min="0" value="${Number.isFinite(c.payout)?c.payout:""}" /></label>
+        <label>Game date/time<input class="hr-kickoff" type="datetime-local" value="${c.kickoff?escapeHtml(isoToLocalDateTimeValue(c.kickoff)):""}" /></label>
         <label>League<input class="hr-competition" value="${escapeHtml(c.competition||"")}" /></label>
         <label>Ticket ID<input class="hr-ticket" value="${escapeHtml(c.ticketId||"")}" /></label>
       </div>
+      <div class="history-errors ${ready?"ok":""}">${errors.length?`Check: ${escapeHtml(errors.join(", "))}`:"All required fields checked. Ready to import."}</div>
+      ${(c.ocrWarnings||[]).length?`<div class="history-ocr-warning">OCR warning: ${escapeHtml(c.ocrWarnings.join("; "))}</div>`:""}
       ${(c.oddsBoost||c.neutralSite)?`<div class="history-flags">${c.oddsBoost?`<span>⚡ Odds boost</span>`:""}${c.neutralSite?`<span>🏟 Neutral venue</span>`:""}</div>`:""}
       <details><summary>OCR block</summary><pre>${escapeHtml(c.raw||"")}</pre></details>
     </article>`;
   }).join("");
   $("historyReviewTitle").textContent=`${historyImportCandidates.length} candidate wager${historyImportCandidates.length===1?"":"s"} found`;
-  $("historyImportSummary").textContent=`${cleanCount-matchCount} new • ${matchCount} match${matchCount===1?"":"es"} to update • ${dupCount} duplicate${dupCount===1?"":"s"} • ${blockedCount} unsupported. Review checked rows before import.`;
-  btn.disabled=false;
+  refreshHistoryImportButton();
 }
 function collectHistoryReviewRows(){
-  return [...$("historyReviewList").querySelectorAll(".history-review-card")].map(card=>{
-    const i=Number(card.dataset.historyIndex),base=historyImportCandidates[i]||{};
-    const pick=card.querySelector(".history-pick");
-    const stakeValue=card.querySelector(".hr-stake").value;
-    const payoutValue=card.querySelector(".hr-payout").value;
-    return {
-      selected:Boolean(pick?.checked&&!pick.disabled),
-      data:{
-        ...base,
-        ticketId:card.querySelector(".hr-ticket").value.trim()||null,
-        sport:card.querySelector(".hr-sport").value,
-        result:card.querySelector(".hr-result").value,
-        away:card.querySelector(".hr-away").value.trim(),
-        home:card.querySelector(".hr-home").value.trim(),
-        team:card.querySelector(".hr-team").value.trim(),
-        line:Number(card.querySelector(".hr-line").value),
-        price:Number(card.querySelector(".hr-price").value),
-        stake:stakeValue===""?null:Number(stakeValue),
-        payout:payoutValue===""?null:Number(payoutValue),
-        competition:card.querySelector(".hr-competition").value.trim()||null
-      }
-    };
-  });
+  return [...$("historyReviewList").querySelectorAll(".history-review-card")].map(card=>({
+    selected:Boolean(card.querySelector(".history-pick")?.checked&&!card.querySelector(".history-pick")?.disabled),
+    data:historyReviewData(card),card
+  }));
 }
 function refreshHistoryImportButton(){
   const btn=$("importSelectedHistoryBtn");
   if(!btn)return;
   const cards=[...$("historyReviewList").querySelectorAll(".history-review-card")];
   if(!cards.length){btn.disabled=true;return;}
-
-  let selectable=0,selected=0;
+  let selected=0,needReview=0,ready=0,duplicates=0;
   for(const card of cards){
-    const pick=card.querySelector(".history-pick");
-    if(!pick||pick.disabled)continue;
-    selectable++;
-    if(pick.checked)selected++;
+    const errors=updateHistoryReviewCard(card);
+    if(card.querySelector(".history-pick")?.checked)selected++;
+    if(card.querySelector(".history-status")?.textContent==="DUPLICATE")duplicates++;
+    else if(errors.length)needReview++;
+    else ready++;
   }
-  // Keep the action available whenever review cards exist. If nothing is
-  // selected, clicking it gives a useful message instead of appearing dead.
-  btn.disabled=selectable===0;
-  btn.textContent=selected?`Import Selected Wagers (${selected})`:"Import Selected Wagers";
+  btn.disabled=false;
+  btn.textContent=selected?`Import Selected Wagers (${selected})`:`Import Selected Wagers`;
+  $("historyImportSummary").textContent=`${ready} valid • ${needReview} need review • ${duplicates} duplicate. Fill highlighted fields, then select checked rows to import. No incomplete ticket will be silently skipped.`;
 }
+
 async function historyImageBitmap(file){
   if(globalThis.createImageBitmap)return await createImageBitmap(file);
   return await new Promise((resolve,reject)=>{
@@ -1670,7 +1736,7 @@ async function scanHistoryImages(files){
 
     // Re-run duplicate/match logic after all slices are combined. Overlapping
     // slices can deliberately see the same BetMGM card twice.
-    historyImportCandidates=findHistoryDuplicates(allCandidates);
+    historyImportCandidates=findHistoryDuplicates(consolidateHistoryCandidates(allCandidates));
     renderHistoryReview();
 
     $("historyProgressTitle").textContent="History scan complete";
@@ -1738,7 +1804,7 @@ function applyBetMgmHistoryToExisting(existing,c){
   if(c.competition)existing.competition=c.competition;
   if(Number.isFinite(Number(c.price)))existing.price=Number(c.price);
   if(Number.isFinite(Number(c.stake))&&Number(c.stake)>0)existing.stake=Number(c.stake);
-  if(Number.isFinite(Number(c.payout)))existing.payout=Number(c.payout);
+  if(c.payout!==null&&c.payout!==""&&Number.isFinite(Number(c.payout)))existing.payout=Number(c.payout);
   existing.neutralSite=Boolean(c.neutralSite||existing.neutralSite);
   existing.oddsBoost=Boolean(c.oddsBoost||existing.oddsBoost);
 
@@ -1751,56 +1817,64 @@ function applyBetMgmHistoryToExisting(existing,c){
 }
 function importReviewedHistory(){
   const reviewed=collectHistoryReviewRows().filter(x=>x.selected);
-  if(!reviewed.length){$("historyImportSummary").textContent="Select at least one clean wager to import or update.";return;}
-
+  if(!reviewed.length){
+    const cards=[...$("historyReviewList").querySelectorAll(".history-review-card")];
+    const incomplete=cards.find(x=>historyValidationErrors(historyReviewData(x)).length);
+    $("historyImportSummary").textContent=incomplete
+      ?"Nothing imported. The highlighted wagers still have missing or mismatched information. Fix the yellow REVIEW fields, then check those wagers to import."
+      :"Nothing imported. Select at least one READY or MATCH wager first.";
+    if(incomplete){incomplete.scrollIntoView({behavior:"smooth",block:"center"});}
+    return;
+  }
+  const invalid=reviewed.find(row=>historyValidationErrors(row.data).length);
+  if(invalid){
+    const problems=historyValidationErrors(invalid.data);
+    $("historyImportSummary").textContent=`Nothing imported. Fix ${problems.join(", ")} on ticket ${invalid.data.ticketId||"unknown"}.`;
+    invalid.card.scrollIntoView({behavior:"smooth",block:"center"});
+    return;
+  }
   const bets=getBets();
-  let added=0,updated=0,skipped=0;
-
+  let added=0,updated=0,duplicates=0;
+  const processedTickets=new Set();
   for(const row of reviewed){
-    const c=row.data;
-    if(!EDGE_SPORTS[c.sport]||!c.away||!c.home||!c.team||!Number.isFinite(c.line)||!Number.isFinite(c.price)){skipped++;continue;}
-
+    const c=row.data,tk=historyTicketKey(c);
+    if(tk&&processedTickets.has(tk)){duplicates++;continue;}
+    if(tk)processedTickets.add(tk);
     let idx=c.matchExistingId?bets.findIndex(b=>String(b.id)===String(c.matchExistingId)):-1;
     if(idx<0){
       const match=findExistingHistoryMatch(c,bets);
       idx=match?bets.findIndex(b=>String(b.id)===String(match.id)):-1;
     }
-
-    if(idx>=0){
-      bets[idx]=applyBetMgmHistoryToExisting(bets[idx],c);
-      updated++;
-      continue;
-    }
-
-    const isDup=bets.some(b=>{
-      const tk=historyTicketKey(c);
-      return (tk&&historyTicketKey(b)===tk)||historySemanticMatch(c,b);
-    });
-    if(isDup){skipped++;continue;}
-
-    const kickoff=c.kickoff||new Date().toISOString();
+    if(idx>=0){bets[idx]=applyBetMgmHistoryToExisting(bets[idx],c);updated++;continue;}
+    if(bets.some(b=>{
+      const ticket=historyTicketKey(c);
+      return (ticket&&historyTicketKey(b)===ticket)||historySemanticMatch(c,b);
+    })){duplicates++;continue;}
+    const kickoff=c.kickoff;
     const b=historyGradeMoney({
-      id:makeBetId(),ticketId:c.ticketId||null,sport:c.sport,competition:c.competition||null,
-      market:"SPREAD",kind:c.kind==="LIVE"?"LIVE":"PREGAME",result:c.result||"PENDING",
+      id:makeBetId(),ticketId:c.ticketId,sport:c.sport,competition:c.competition||null,
+      market:"SPREAD",kind:c.kind==="LIVE"?"LIVE":"PREGAME",result:c.result,
       manualEntry:true,importSource:"BETMGM_HISTORY",sportsbook:"BetMGM",
       createdAt:c.createdAt||kickoff,kickoff,season:new Date(kickoff).getFullYear(),week:null,
       gameId:manualGameId(c.away,c.home,kickoff,c.sport),cfbdGameId:null,
       away:c.away,home:c.home,team:c.team,line:Number(c.line),price:Number(c.price),
-      units:Number(c.units)||1,stake:Number.isFinite(Number(c.stake))?Number(c.stake):null,
-      payout:Number.isFinite(Number(c.payout))?Number(c.payout):null,
+      units:Number(c.units)||1,stake:Number(c.stake),
+      payout:c.payout===null?null:Number(c.payout),
       neutralSite:Boolean(c.neutralSite),oddsBoost:Boolean(c.oddsBoost),
       edge:null,projectedLine:null,classification:"HISTORY_IMPORT",
-      notes:c.ticketId?`BetMGM history • Ticket ${c.ticketId}`:"BetMGM history import"
+      notes:`BetMGM history • Ticket ${c.ticketId}`
     });
     bets.push(b);added++;
   }
-
-  bets.sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
-  saveBets(bets);
-  $("historyImportSummary").textContent=`BetMGM history applied: ${added} new • ${updated} existing updated${skipped?` • ${skipped} skipped`:""}. Cloud sync will carry the changes to your other device.`;
-  $("betCheckStatus").textContent=`📚 BetMGM history: ${added} new wager${added===1?"":"s"} • ${updated} existing updated.`;
+  if(added||updated){
+    bets.sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
+    saveBets(bets);
+  }
+  $("historyImportSummary").textContent=`BetMGM history applied: ${added} new • ${updated} existing updated • ${duplicates} already present. ${added||updated?"Saved locally; cloud sync will carry the changes to your other device.":"No changes were needed."}`;
+  $("betCheckStatus").textContent=`📚 BetMGM history: ${added} new wagers • ${updated} existing updated.`;
   if(added||updated){$("importSelectedHistoryBtn").disabled=true;$("importSelectedHistoryBtn").textContent="Imported ✓";}
 }
+
 function clearBetSlipPreviewUrl(){
   if(currentBetSlipObjectUrl){URL.revokeObjectURL(currentBetSlipObjectUrl);currentBetSlipObjectUrl=null;}
 }
@@ -2428,7 +2502,13 @@ $("historySetUnknownCbbBtn").addEventListener("click",()=>{
   renderHistoryReview();
 });
 $("historySelectAllBtn").addEventListener("click",()=>{
-  $("historyReviewList").querySelectorAll(".history-pick:not(:disabled)").forEach(x=>x.checked=true);
+  $("historyReviewList").querySelectorAll(".history-review-card").forEach(card=>{
+    if(!historyValidationErrors(historyReviewData(card)).length){
+      const pick=card.querySelector(".history-pick");
+      if(pick&&!pick.disabled)pick.checked=true;
+    }
+  });
+  refreshHistoryImportButton();
 });
 $("historyClearReviewBtn").addEventListener("click",()=>{
   historyImportCandidates=[];$("historyPasteText").value="";$("historyRawText").value="";renderHistoryReview();
@@ -2436,16 +2516,11 @@ $("historyClearReviewBtn").addEventListener("click",()=>{
 $("importSelectedHistoryBtn").addEventListener("click",importReviewedHistory);
 $("historyReviewList").addEventListener("change",e=>{
   const card=e.target.closest?.(".history-review-card");
-  if(!card){refreshHistoryImportButton();return;}
-  const pick=card.querySelector(".history-pick");
-  if(e.target!==pick && pick && !pick.disabled){
-    const sport=card.querySelector(".hr-sport")?.value;
-    const away=card.querySelector(".hr-away")?.value.trim();
-    const home=card.querySelector(".hr-home")?.value.trim();
-    const team=card.querySelector(".hr-team")?.value.trim();
-    const line=Number(card.querySelector(".hr-line")?.value);
-    const price=Number(card.querySelector(".hr-price")?.value);
-    if(EDGE_SPORTS[sport]&&away&&home&&team&&Number.isFinite(line)&&Number.isFinite(price))pick.checked=true;
+  if(card&&e.target?.matches("input:not(.history-pick), select")){
+    // A repaired ticket becomes checked automatically, but only when every
+    // required field is now valid and its team belongs to the stated game.
+    const pick=card.querySelector(".history-pick");
+    if(pick&&!pick.disabled&&!historyValidationErrors(historyReviewData(card)).length)pick.checked=true;
   }
   refreshHistoryImportButton();
 });

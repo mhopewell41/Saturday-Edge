@@ -265,3 +265,10 @@ dialog{width:min(720px,calc(100vw - 28px));border:1px solid #365344;background:#
 
 /* v0.9.4c Long screenshot OCR fix */
 .history-progress strong{color:#dff4ff}
+
+/* v0.9.4f: actionable OCR review, no silent six-row skips */
+.history-errors{font-size:11px;color:#f2d47d;line-height:1.4;padding-top:9px;font-weight:750}
+.history-errors.ok{color:#9ef4ba}
+.history-ocr-warning{font-size:10px;line-height:1.4;color:#f0b980;padding-top:6px}
+.history-review-card.warn .history-edit-grid input:focus,.history-review-card.warn .history-edit-grid select:focus{outline:2px solid #bca263}
+.history-review-card.warn{background:rgba(102,79,28,.075)}
