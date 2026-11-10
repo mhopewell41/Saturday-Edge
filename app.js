@@ -2,8 +2,9 @@ const LIVE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/sat
 const PERFORMANCE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/saturday-edge-performance";
 const LIVE_EDGE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/Saturday-edge-live";
 const BET_CHECK_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/Saturday-edge-bet-check";
+const CBB_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/edgehope-cbb";
 const BETMGM_URL = "https://sports.betmgm.com/";
-const SETTINGS_VERSION = 18;
+const SETTINGS_VERSION = 19;
 const LIVE_AUTO_REFRESH_MS = 2 * 60 * 1000;
 const DEFAULT_SUPABASE_URL = "https://ahskdtpxsjqasbpbvxja.supabase.co";
 const CLOUD_TABLE = "se_user_bets";
@@ -24,7 +25,7 @@ const DEMO_GAMES = [
   }
 ];
 
-const defaultSettings = { version:SETTINGS_VERSION, mode:"live", endpoint:LIVE_ENDPOINT, liveEndpoint:LIVE_EDGE_ENDPOINT, supabaseUrl:DEFAULT_SUPABASE_URL, supabaseKey:"" };
+const defaultSettings = { version:SETTINGS_VERSION, mode:"live", endpoint:LIVE_ENDPOINT, liveEndpoint:LIVE_EDGE_ENDPOINT, cbbEndpoint:CBB_ENDPOINT, supabaseUrl:DEFAULT_SUPABASE_URL, supabaseKey:"" };
 
 function loadSettings(){
   try{
@@ -80,6 +81,10 @@ let livePayload = null;
 let liveAutoTimer = null;
 let pregameStatusText = "";
 let liveStatusText = "Live Edge is ready.";
+let cbbGames = [];
+let cbbPayload = null;
+let cbbStatusText = "CBB Market Lab is ready.";
+let currentBetSport = "CFB";
 let cloudClient = null;
 let cloudSession = null;
 let cloudUser = null;
@@ -418,7 +423,7 @@ function populateBetTeamOptions(options,preferred){
 
 function openLiveBet(id){
   const g=liveGames.find(x=>String(x.gameId)===String(id)); if(!g||!g.betmgm?.available) return;
-  currentBetGame=g; currentBetKind="LIVE"; $("betGameId").value=g.gameId;
+  currentBetGame=g; currentBetKind="LIVE"; currentBetSport="CFB"; $("betGameId").value=g.gameId;
   const options=[
     {team:g.home,line:Number(g.betmgm.homeLine),price:g.betmgm.homePrice??-110},
     {team:g.away,line:Number(g.betmgm.awayLine),price:g.betmgm.awayPrice??-110}
@@ -447,19 +452,107 @@ function startLiveAutoRefresh(){
   liveAutoTimer=setInterval(()=>{ if(activeView==="live") loadLiveGames(); },LIVE_AUTO_REFRESH_MS);
 }
 
+
+function cbbSignalClass(g){
+  const v=Number(g?.marketValue ?? 0);
+  if(v>=1) return "value";
+  if(v>=0.5) return "watch";
+  return "neutral";
+}
+function renderCbb(){
+  const board=$("cbbBoard"), empty=$("cbbEmpty");
+  if(!board) return;
+  const rows=Array.isArray(cbbGames)?cbbGames:[];
+  $("cbbCount").textContent=rows.length;
+  $("cbbNavCount").textContent=rows.length;
+  $("cbbValueCount").textContent=rows.filter(g=>Number(g.marketValue)>=1).length;
+  $("cbbWatchCount").textContent=rows.filter(g=>Number(g.marketValue)>=0.5&&Number(g.marketValue)<1).length;
+  $("cbbCredits").textContent=cbbPayload?.oddsApiUsage?.remaining ?? "—";
+  if(!rows.length){board.innerHTML="";empty.classList.remove("hidden");return;}
+  empty.classList.add("hidden");
+  board.innerHTML=rows.map(g=>{
+    const cls=cbbSignalClass(g), value=Number(g.marketValue||0);
+    const signal=value>=1?"BETMGM VALUE":value>=0.5?"WATCH":"MARKET NEUTRAL";
+    const books=Number(g.consensusBookCount||0);
+    return `<article class="cbb-game-card ${cls}">
+      <div class="cbb-matchup">
+        <div class="cbb-time">${fmtTime(g.kickoff)}</div>
+        <h3>${escapeHtml(g.away)} <span>@</span> ${escapeHtml(g.home)}</h3>
+        <div class="cbb-side">${escapeHtml(g.recommendedTeam||"")} ${fmtLine(g.betmgmLine)} <small>${fmtPrice(g.betmgmPrice??-110)}</small></div>
+      </div>
+      <div class="cbb-market-grid">
+        <div><span>BetMGM</span><strong>${fmtLine(g.betmgmLine)}</strong></div>
+        <div><span>Consensus</span><strong>${fmtLine(g.consensusLine)}</strong><small>${books} books</small></div>
+        <div><span>Line value</span><strong>${value>0?"+":""}${value.toFixed(1)}</strong><small>points</small></div>
+      </div>
+      <div class="cbb-signal ${cls}">${signal}</div>
+      <p class="cbb-note">${escapeHtml(g.note||"Market-only prototype. Use matchup research before placing a wager.")}</p>
+      <div class="card-actions"><button class="small-btn mgm" onclick="openBetMgm()">↗ BetMGM</button><button class="small-btn bet" onclick="openCbbBet('${escapeHtml(g.id)}')">+ Bet Placed</button></div>
+    </article>`;
+  }).join("");
+}
+
+async function loadCbbGames(){
+  const status=$("cbbStatus");
+  if(status) status.textContent="Loading BetMGM college-basketball spreads…";
+  try{
+    if(settings.mode!=="live"){
+      cbbPayload={modelVersion:"EdgeHope CBB Market Lab v0.1",oddsApiUsage:{remaining:"demo"},games:[
+        {id:"cbb-demo",kickoff:new Date(Date.now()+3*3600000).toISOString(),away:"Demo College",home:"EdgeHope U",recommendedTeam:"Demo College",betmgmLine:7.5,betmgmPrice:-110,consensusLine:6.5,consensusBookCount:7,marketValue:1.0,note:"Demo only: BetMGM is one point better than the median market for this side."}
+      ]};
+    }else{
+      const endpoint=settings.cbbEndpoint||CBB_ENDPOINT;
+      if(!endpoint) throw new Error("Add the CBB Edge Function URL in Settings.");
+      const r=await fetch(endpoint,{headers:{Accept:"application/json"},cache:"no-store"});
+      const payload=await r.json().catch(()=>({}));
+      if(!r.ok||payload.error) throw new Error(payload.error||`CBB request failed (${r.status}).`);
+      cbbPayload=payload;
+    }
+    cbbGames=Array.isArray(cbbPayload?.games)?cbbPayload.games:[];
+    cbbStatusText=`${cbbPayload?.modelVersion||"CBB Market Lab"} • ${cbbGames.length} games • market-only prototype`;
+    if(status) status.textContent=cbbStatusText;
+    renderCbb();
+  }catch(err){
+    cbbGames=[]; cbbPayload=null; renderCbb();
+    cbbStatusText=`⚠ CBB Lab unavailable: ${err.message||err}`;
+    if(status) status.textContent=cbbStatusText;
+  }
+}
+
+function openCbbBet(id){
+  const g=cbbGames.find(x=>String(x.id)===String(id)); if(!g) return;
+  currentBetGame=g; currentBetKind="PREGAME"; currentBetSport="CBB";
+  $("betDialogTitle").textContent=`CBB • ${g.away} @ ${g.home}`;
+  $("betTeam").innerHTML=[g.away,g.home].map(team=>`<option value="${escapeHtml(team)}" ${team===g.recommendedTeam?"selected":""}>${escapeHtml(team)}</option>`).join("");
+  $("betLine").value=Number(g.betmgmLine??0);
+  $("betPrice").value=Number(g.betmgmPrice??-110);
+  $("betUnits").value="1"; $("betStake").value=""; $("betNotes").value="";
+  $("betContext").classList.remove("hidden");
+  $("betContext").innerHTML=`🏀 <strong>CBB Market Lab v0.1</strong> • BetMGM ${fmtLine(g.betmgmLine)} • consensus ${fmtLine(g.consensusLine)} • market value ${Number(g.marketValue||0)>=0?"+":""}${Number(g.marketValue||0).toFixed(1)} pts`;
+  $("betDialog").showModal();
+}
+window.openCbbBet=openCbbBet;
+
 async function switchView(view){
   if(view===activeView) return;
   if(activeView==="pregame") pregameStatusText=$("statusText").textContent;
   activeView=view;
   $("pregamePane").classList.toggle("hidden",view!=="pregame");
   $("livePane").classList.toggle("hidden",view!=="live");
+  $("cbbPane").classList.toggle("hidden",view!=="cbb");
   $("pregameViewBtn").classList.toggle("active",view==="pregame");
   $("liveViewBtn").classList.toggle("active",view==="live");
+  $("cbbViewBtn").classList.toggle("active",view==="cbb");
   if(view==="live"){
     $("refreshBtn").textContent="↻ Refresh Live";
     $("statusText").textContent=liveStatusText;
     if(!livePayload) await loadLiveGames();
     startLiveAutoRefresh();
+  }else if(view==="cbb"){
+    stopLiveAutoRefresh();
+    $("refreshBtn").textContent="↻ Refresh CBB";
+    if(!cbbPayload) await loadCbbGames();
+    $("statusText").textContent=cbbStatusText;
   }else{
     stopLiveAutoRefresh();
     $("refreshBtn").textContent="↻ Refresh";
@@ -899,7 +992,7 @@ function openBet(id){
     alert("This game has started or is inside the 5-minute pregame safety buffer. Use the LIVE EDGE tab for in-game tracking.");
     return;
   }
-  currentBetGame=g; currentBetKind="PREGAME"; $("betGameId").value=g.id;
+  currentBetGame=g; currentBetKind="PREGAME"; currentBetSport="CFB"; $("betGameId").value=g.id;
   populateBetTeamOptions([{team:g.recommendedTeam,line:Number(g.marketLine),price:g.marketPrice??-110}],g.recommendedTeam);
   $("betDialogTitle").textContent=`${g.recommendedTeam} ${fmtLine(g.marketLine)}`;
   $("betContext").classList.add("hidden"); $("betContext").innerHTML="";
@@ -2252,8 +2345,8 @@ async function checkBetResults(){
   finally{btn.disabled=false;}
 }
 function exportBets(){
-  const blob=new Blob([JSON.stringify({version:"Saturday Edge Multi-Sport Ledger v0.1",exportedAt:new Date().toISOString(),bets:getBets()},null,2)],{type:"application/json"});
-  const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=`saturday-edge-multisport-ledger-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  const blob=new Blob([JSON.stringify({version:"EdgeHope Multi-Sport Ledger v0.2",exportedAt:new Date().toISOString(),bets:getBets()},null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=`edgehope-multisport-ledger-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 function importBetsFile(file){
   const reader=new FileReader();reader.onload=()=>{try{const parsed=JSON.parse(reader.result);const incoming=Array.isArray(parsed)?parsed:parsed?.bets;if(!Array.isArray(incoming))throw new Error("No bets array found.");const current=getBets();const seen=new Set(current.map(b=>b.id));for(const row of incoming){
@@ -2391,7 +2484,11 @@ $("betForm").addEventListener("submit",e=>{
   e.preventDefault(); if(!currentBetGame) return;
   const g=currentBetGame,bets=getBets();
   const team=$("betTeam").value, stake=$("betStake").value===""?null:Number($("betStake").value);
-  if(currentBetKind==="LIVE"){
+  if(currentBetSport==="CBB"){
+    const marketValue=teamNamesMatch(team,g.recommendedTeam)?Number(g.marketValue||0):-Number(g.marketValue||0);
+    const line=Number($("betLine").value), price=Number($("betPrice").value), units=Number($("betUnits").value);
+    bets.unshift({id:makeBetId(),sport:"CBB",market:"SPREAD",kind:"PREGAME",result:"PENDING",manualEntry:false,createdAt:new Date().toISOString(),gameId:g.id,cfbdGameId:null,season:new Date(g.kickoff).getFullYear(),week:null,kickoff:g.kickoff,away:g.away,home:g.home,team,line,price,units,stake,edge:marketValue,projectedLine:null,classification:Number(Math.abs(marketValue))>=1?"MARKET_VALUE":"TRACK_ONLY",consensusLine:teamNamesMatch(team,g.recommendedTeam)?g.consensusLine:(g.consensusLine===null||g.consensusLine===undefined?null:-Number(g.consensusLine)),betmgmVsConsensus:marketValue,matchedSystems:["MARKET_CONSENSUS"],notes:$("betNotes").value.trim()});
+  }else if(currentBetKind==="LIVE"){
     const lm=g.liveModel||{};
     const isRec=teamNamesMatch(team,lm.recommendedTeam);
     const edge=lm.edge===null||lm.edge===undefined?null:(isRec?Number(lm.edge):-Number(lm.edge));
@@ -2407,6 +2504,7 @@ function openSettings(){
   $("modeSelect").value=settings.mode;
   $("endpointInput").value=settings.endpoint||"";
   $("liveEndpointInput").value=settings.liveEndpoint||LIVE_EDGE_ENDPOINT;
+  $("cbbEndpointInput").value=settings.cbbEndpoint||CBB_ENDPOINT;
   $("supabaseUrlInput").value=settings.supabaseUrl||DEFAULT_SUPABASE_URL;
   $("supabaseKeyInput").value=settings.supabaseKey||"";
   $("cloudSettingsStatus").textContent=settings.supabaseKey
@@ -2423,6 +2521,7 @@ $("saveSettingsBtn").addEventListener("click",async()=>{
     mode:$("modeSelect").value,
     endpoint:$("endpointInput").value.trim(),
     liveEndpoint:$("liveEndpointInput").value.trim()||LIVE_EDGE_ENDPOINT,
+    cbbEndpoint:$("cbbEndpointInput").value.trim()||CBB_ENDPOINT,
     supabaseUrl:advancedUrl||settings.supabaseUrl||DEFAULT_SUPABASE_URL,
     supabaseKey:advancedKey||settings.supabaseKey||""
   };
@@ -2433,6 +2532,7 @@ $("saveSettingsBtn").addEventListener("click",async()=>{
   await loadGames();
   await loadPerformance();
   if(activeView==="live") await loadLiveGames();
+  if(activeView==="cbb") await loadCbbGames();
 });
 $("tabs").addEventListener("click",e=>{
   const btn=e.target.closest(".tab");
@@ -2471,6 +2571,8 @@ $("sortSelect").addEventListener("change",render);
 $("refreshBtn").addEventListener("click",async()=>{
   if(activeView==="live"){
     await loadLiveGames();
+  }else if(activeView==="cbb"){
+    await loadCbbGames();
   }else{
     await loadGames();
     await loadPerformance();
@@ -2479,6 +2581,15 @@ $("refreshBtn").addEventListener("click",async()=>{
 $("liveRefreshBtn").addEventListener("click",loadLiveGames);
 $("pregameViewBtn").addEventListener("click",()=>switchView("pregame"));
 $("liveViewBtn").addEventListener("click",()=>switchView("live"));
+$("cbbViewBtn").addEventListener("click",()=>switchView("cbb"));
+$("cbbRefreshBtn").addEventListener("click",loadCbbGames);
+$("cbbLedgerBtn").addEventListener("click",async()=>{
+  await switchView("pregame");
+  currentLedgerSportFilter="CBB";
+  $("ledgerSportFilter").querySelectorAll("[data-ledger-sport]").forEach(x=>x.classList.toggle("active",x.dataset.ledgerSport==="CBB"));
+  renderBets();
+  $("betsTableWrap")?.scrollIntoView({behavior:"smooth",block:"start"});
+});
 $("settingsBtn").addEventListener("click",openSettings);
 $("dialogClose").addEventListener("click",()=>$("gameDialog").close());
 $("settingsClose").addEventListener("click",()=>$("settingsDialog").close());
@@ -2574,7 +2685,7 @@ $("clearBetsBtn").addEventListener("click",async()=>{if(confirm(cloudUser?"Clear
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=94e").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=100b1").catch(()=>{}));}
 (async()=>{
   renderLiveBets();
   renderBetMgmPerformance();

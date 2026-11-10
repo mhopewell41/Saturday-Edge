@@ -4,10 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#08120e" />
-  <title>Saturday Edge</title>
+  <title>EdgeHope</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=94f" />
+  <link rel="stylesheet" href="styles.css?v=100b1" />
 </head>
 <body>
   <div class="app-shell">
@@ -15,8 +15,8 @@
       <div class="brand">
         <div class="ball">🏈</div>
         <div>
-          <h1>SATURDAY EDGE</h1>
-          <p>Multi-Sport Spread Intelligence</p>
+          <h1>EDGEHOPE</h1>
+          <p>Sports Intelligence • Football + College Basketball</p>
         </div>
       </div>
       <div class="top-actions">
@@ -27,7 +27,7 @@
 
     <section class="hero">
       <div>
-        <div class="eyebrow">BETMGM • SPREADS • APP v0.9.4f • BETMGM VALIDATED IMPORT • BETMGM HISTORY • CFB MODEL v0.5</div>
+        <div class="eyebrow">EDGEHOPE • APP v1.0.0-beta.1 • CFB MODEL v0.5 • CBB MARKET LAB v0.1 • BETMGM VALIDATED IMPORT</div>
         <h2>Find the number.<br><span>Keep the receipts.</span></h2>
         <p id="statusText">Loading the live board…</p>
       </div>
@@ -38,9 +38,10 @@
       </div>
     </section>
 
-    <nav class="view-switch" aria-label="Saturday Edge view">
+    <nav class="view-switch" aria-label="EdgeHope view">
       <button id="pregameViewBtn" class="view-btn active" type="button">🏟️ PREGAME</button>
-      <button id="liveViewBtn" class="view-btn live" type="button">⚡ LIVE EDGE <span id="liveNavCount">0</span></button>
+      <button id="liveViewBtn" class="view-btn live" type="button">⚡ CFB LIVE <span id="liveNavCount">0</span></button>
+      <button id="cbbViewBtn" class="view-btn cbb" type="button">🏀 CBB LAB <span id="cbbNavCount">0</span></button>
     </nav>
 
     <div id="pregamePane">
@@ -263,6 +264,40 @@
     </section>
     </div>
 
+    <section id="cbbPane" class="cbb-pane hidden">
+      <section class="cbb-lab-section">
+        <div class="section-heading cbb-heading">
+          <div>
+            <div class="eyebrow">COLLEGE BASKETBALL • PROTOTYPE RESEARCH</div>
+            <h2>🏀 CBB Market Lab v0.1</h2>
+            <p id="cbbStatus">Open the CBB Lab to compare BetMGM with the broader market.</p>
+          </div>
+          <div class="cbb-actions">
+            <div class="evidence-badge cbb-badge">🧪 Market-first</div>
+            <button id="cbbLedgerBtn" class="btn ghost" type="button">💰 CBB Ledger</button>
+            <button id="cbbRefreshBtn" class="btn primary" type="button">↻ Refresh CBB</button>
+          </div>
+        </div>
+
+        <div class="cbb-rule">
+          <strong>What v0.1 does:</strong> compares each BetMGM spread with the median spread from other U.S. books.
+          <span>This is line-shopping intelligence, not yet a predictive game model. A better BetMGM number is useful evidence, but it is not by itself a reason to bet.</span>
+        </div>
+
+        <div class="cbb-summary-grid">
+          <article class="cbb-summary-card"><span>Games with BetMGM</span><strong id="cbbCount">0</strong></article>
+          <article class="cbb-summary-card value"><span>1+ point better</span><strong id="cbbValueCount">0</strong></article>
+          <article class="cbb-summary-card watch"><span>½-point better</span><strong id="cbbWatchCount">0</strong></article>
+          <article class="cbb-summary-card"><span>Odds credits</span><strong id="cbbCredits">—</strong></article>
+        </div>
+
+        <div class="cbb-guardrail">🧯 <strong>Guardrail:</strong> CBB v0.1 will never label a market-only signal STRONG. We are collecting evidence before adding a true basketball power model.</div>
+
+        <div id="cbbBoard" class="cbb-board"></div>
+        <div id="cbbEmpty" class="empty">No college-basketball spreads are available right now.</div>
+      </section>
+    </section>
+
     <section id="livePane" class="live-pane hidden">
       <section class="live-edge-section">
         <div class="section-heading live-heading">
@@ -312,7 +347,7 @@
     </section>
 
     <footer>
-      <p><strong>Saturday Edge is an analysis tool, not a guarantee.</strong> Model scores are not win probabilities. Bet only amounts you can afford to lose. No wager is placed automatically.</p>
+      <p><strong>EdgeHope is an analysis tool, not a guarantee.</strong> Model scores are not win probabilities. Bet only amounts you can afford to lose. No wager is placed automatically.</p>
     </footer>
   </div>
 
@@ -351,8 +386,12 @@
         Live Edge Function URL
         <input id="liveEndpointInput" type="url" placeholder="https://YOUR_PROJECT.supabase.co/functions/v1/Saturday-edge-live" />
       </label>
+      <label>
+        College Basketball Function URL
+        <input id="cbbEndpointInput" type="url" placeholder="https://YOUR_PROJECT.supabase.co/functions/v1/edgehope-cbb" />
+      </label>
       <div class="settings-divider">Cloud account sync</div>
-      <div id="cloudSettingsStatus" class="note">Cloud sync uses your saved Saturday Edge connection automatically.</div>
+      <div id="cloudSettingsStatus" class="note">Cloud sync uses your saved EdgeHope connection automatically.</div>
       <details class="advanced-settings">
         <summary>Advanced cloud setup</summary>
         <p>Only use this if cloud sync has not been configured on this device.</p>
@@ -386,7 +425,7 @@
         <img id="betSlipPreview" class="bet-slip-preview" alt="Bet slip preview" />
         <div>
           <strong id="betSlipOcrTitle">Ready to read ticket</strong>
-          <span id="betSlipOcrStatus">Choose a screenshot or share one to Saturday Edge.</span>
+          <span id="betSlipOcrStatus">Choose a screenshot or share one to EdgeHope.</span>
           <div class="ocr-progress-track"><div id="betSlipOcrProgress" class="ocr-progress-bar"></div></div>
         </div>
       </div>
@@ -624,7 +663,7 @@
     <div class="dialog-head">
       <div>
         <div class="eyebrow">ONE ACCOUNT • EVERY DEVICE</div>
-        <h2>☁️ Saturday Edge Cloud</h2>
+        <h2>☁️ EdgeHope Cloud</h2>
       </div>
       <button id="cloudAuthClose" class="icon-btn">✕</button>
     </div>
@@ -650,7 +689,7 @@
       <button id="cloudResetClose" class="icon-btn">✕</button>
     </div>
     <form id="cloudResetForm" class="settings-body">
-      <div class="manual-bet-note">Enter a new password for your Saturday Edge cloud account.</div>
+      <div class="manual-bet-note">Enter a new password for your EdgeHope cloud account.</div>
       <label>New password<input id="cloudNewPassword" type="password" autocomplete="new-password" minlength="8" required /></label>
       <label>Confirm password<input id="cloudConfirmPassword" type="password" autocomplete="new-password" minlength="8" required /></label>
       <div id="cloudResetStatus" class="ledger-status">Use at least 8 characters.</div>
@@ -681,6 +720,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=94f"></script>
+  <script src="app.js?v=100b1"></script>
 </body>
 </html>

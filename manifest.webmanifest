@@ -1,44 +1,17 @@
 {
-  "name": "Saturday Edge",
-  "short_name": "Sat Edge",
-  "description": "Multi-sport spread analysis with BetMGM history import, smart bet-slip OCR, international basketball tracking, and private cloud ledger",
+  "name": "EdgeHope",
+  "short_name": "EdgeHope",
+  "description": "Sports intelligence for college football and college basketball with BetMGM import and private multi-sport ledger",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#07100c",
   "theme_color": "#07100c",
   "icons": [
-    {
-      "src": "icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png"
-    }
+    {"src":"icon-192.png","sizes":"192x192","type":"image/png"},
+    {"src":"icon-512.png","sizes":"512x512","type":"image/png"}
   ],
   "share_target": {
-    "action": "./share-target",
-    "method": "POST",
-    "enctype": "multipart/form-data",
-    "params": {
-      "title": "sharedTitle",
-      "text": "sharedText",
-      "files": [
-        {
-          "name": "betSlipImage",
-          "accept": [
-            "image/png",
-            "image/jpeg",
-            "image/webp",
-            ".png",
-            ".jpg",
-            ".jpeg",
-            ".webp"
-          ]
-        }
-      ]
-    }
+    "action":"./share-target","method":"POST","enctype":"multipart/form-data",
+    "params":{"title":"sharedTitle","text":"sharedText","files":[{"name":"betSlipImage","accept":["image/png","image/jpeg","image/webp",".png",".jpg",".jpeg",".webp"]}]}
   }
 }
