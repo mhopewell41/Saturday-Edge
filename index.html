@@ -7,7 +7,7 @@
   <title>EdgeHope</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=100b1" />
+  <link rel="stylesheet" href="styles.css?v=100b2" />
 </head>
 <body>
   <div class="app-shell">
@@ -27,7 +27,7 @@
 
     <section class="hero">
       <div>
-        <div class="eyebrow">EDGEHOPE • APP v1.0.0-beta.1 • CFB MODEL v0.5 • CBB MARKET LAB v0.1 • BETMGM VALIDATED IMPORT</div>
+        <div class="eyebrow">EDGEHOPE • APP v1.0.0-beta.2 • CFB MODEL v0.5 • QUALIFIED PLAY v0.1 • CBB MARKET LAB v0.1 • BETMGM VALIDATED IMPORT</div>
         <h2>Find the number.<br><span>Keep the receipts.</span></h2>
         <p id="statusText">Loading the live board…</p>
       </div>
@@ -50,6 +50,7 @@
       <article class="summary-card"><span>Pass</span><strong id="passCount">0</strong></article>
       <article class="summary-card"><span>Playable</span><strong id="playableCount">0</strong></article>
       <article class="summary-card glow"><span>Strong edges</span><strong id="strongCount">0</strong></article>
+      <article class="summary-card qualified-summary"><span>🎯 Qualified Plays</span><strong id="qualifiedCount">0</strong><small>v0.1 selection layer</small></article>
     </section>
 
     <section class="coverage-section">
@@ -162,6 +163,18 @@
           </div>
         </div>
 
+
+        <div>
+          <div class="filter-label">EdgeHope selection</div>
+          <div class="tabs qualified-tabs" id="qualifiedTabs">
+            <button class="tab qualified-tab active" data-qualified-filter="ALL">All</button>
+            <button class="tab qualified-tab" data-qualified-filter="QUALIFIED">🎯 Qualified</button>
+            <button class="tab qualified-tab" data-qualified-filter="WATCH">👀 Watch</button>
+            <button class="tab qualified-tab" data-qualified-filter="RESEARCH">🔬 Research</button>
+            <button class="tab qualified-tab" data-qualified-filter="PASS">Pass</button>
+          </div>
+        </div>
+
         <div>
           <div class="filter-label">Shadow selector</div>
           <div class="tabs shadow-tabs" id="shadowTabs">
@@ -189,9 +202,14 @@
           <option value="edge">Biggest edge</option>
           <option value="time">Kickoff</option>
           <option value="score">Edge score</option>
+          <option value="qualified">Qualified Play rank</option>
         </select>
       </div>
     </section>
+
+    <div class="diagnostic-legend qualified-legend">
+      <strong>🎯 Qualified Play v0.1</strong> is a selection layer above MODEL v0.5. A Qualified Play requires a 4.5–5.9 model edge, underdog price, at least 2 rating systems, and BetMGM aligned with or better than consensus. Home sides receive a ranking bump; 8+ model gaps remain caution territory.
+    </div>
 
     <div class="diagnostic-legend shadow-legend">
       <strong>🧪 Shadow Select v0.1</strong> is a locked prospective experiment starting in Week 8. It does not change MODEL v0.5, does not rewrite earlier games, and does not promote a selection after the result is known.

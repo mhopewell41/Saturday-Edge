@@ -44,6 +44,7 @@ let games = [];
 let currentFilter = "ALL";
 let currentTimeFilter = "ALL";
 let currentShadowFilter = "ALL";
+let currentQualifiedFilter = "ALL";
 let currentBetGame = null;
 let currentBetKind = "PREGAME";
 let currentEditingBetId = null;
@@ -241,6 +242,57 @@ function matchesShadowFilter(g){
   const state=shadowFor(g).state;
   if(currentShadowFilter==="SELECT") return state==="SELECT" || state==="LOCKED";
   return state===currentShadowFilter;
+}
+
+function qualifiedPlayFor(g){
+  const edge=Math.abs(Number(g?.edge||0));
+  const line=Number(g?.marketLine);
+  const systems=Number(g?.ratingSystemCount ?? (Array.isArray(g?.matchedSystems)?g.matchedSystems.length:0));
+  const market=g?.marketConsensus||{};
+  const vs=market?.available&&Number.isFinite(Number(market.betmgmVsConsensus))?Number(market.betmgmVsConsensus):null;
+  const isDog=Number.isFinite(line)&&line>0;
+  const isHome=String(g?.recommendedTeam||"").trim()===String(g?.home||"").trim();
+  const sweet=edge>=4.5&&edge<6.0;
+  const enoughSystems=systems>=2;
+  const marketAligned=market?.available&&vs!==null&&vs>=0;
+  const giant=edge>=8.0;
+  const favorite=Number.isFinite(line)&&line<0;
+
+  let score=0;
+  const reasons=[];
+  if(sweet){score+=4;reasons.push("Model edge is inside the 4.5–5.9 validated sweet spot.");}
+  else if(edge>=3&&edge<4.5){score+=1;reasons.push("Model edge is interesting but below the qualified sweet spot.");}
+  else if(edge>=6&&edge<8){reasons.push("6.0–7.9 edges remain research-only until they validate better.");}
+  if(isDog){score+=2;reasons.push("Recommended side is an underdog.");}
+  if(isHome){score+=1;reasons.push("Home-side profile earns a ranking bump.");}
+  if(enoughSystems){score+=1;reasons.push(`${systems} rating systems support the recommendation.`);}
+  if(marketAligned){score+=2;reasons.push(vs>0?`BetMGM is ${vs.toFixed(1)} point(s) better than consensus.`:"BetMGM is aligned with consensus.");}
+  else if(vs!==null&&vs<0){score-=2;reasons.push(`BetMGM is ${Math.abs(vs).toFixed(1)} point(s) worse than consensus.`);}
+  if(giant){score-=5;reasons.push("8+ point model gaps are a locked caution based on prospective results.");}
+  if(favorite){score-=2;reasons.push("Favorite profile has underperformed the underdog sample.");}
+
+  let state="PASS";
+  if(sweet&&isDog&&enoughSystems&&marketAligned&&!giant) state="QUALIFIED";
+  else if(isDog&&enoughSystems&&edge>=3&&edge<6&&!giant) state="WATCH";
+  else if(g?.classification==="STRONG"||g?.classification==="PLAYABLE"||edge>=3) state="RESEARCH";
+
+  return {version:"EdgeHope Qualified Play v0.1",state,score,reasons,isHome,isDog,sweet,enoughSystems,marketAligned};
+}
+
+function qualifiedChip(g){
+  const q=qualifiedPlayFor(g);
+  const meta={
+    QUALIFIED:["🎯","QUALIFIED","qualified"],
+    WATCH:["👀","WATCH","watch"],
+    RESEARCH:["🔬","RESEARCH","research"],
+    PASS:["•","PASS","pass"]
+  }[q.state];
+  return `<span class="qualified-chip ${meta[2]}" title="EdgeHope Qualified Play v0.1 selection layer. MODEL v0.5 remains unchanged.">${meta[0]} ${meta[1]}</span>`;
+}
+
+function matchesQualifiedFilter(g){
+  if(currentQualifiedFilter==="ALL") return true;
+  return qualifiedPlayFor(g).state===currentQualifiedFilter;
 }
 
 const LIVE_CACHE_KEY="se-live-board-cache-v066";
@@ -915,11 +967,14 @@ function render(){
   let shown=games.filter(g=>
     (currentFilter==="ALL"||g.classification===currentFilter) &&
     matchesTimeFilter(g) &&
-    matchesShadowFilter(g)
+    matchesShadowFilter(g) &&
+    matchesQualifiedFilter(g)
   );
   shown.sort((a,b)=>{
     if(sort==="time") return new Date(a.kickoff)-new Date(b.kickoff);
     if(sort==="score") return Number(b.edgeScore||0)-Number(a.edgeScore||0);
+    if(sort==="qualified") return qualifiedPlayFor(b).score-qualifiedPlayFor(a).score || Math.abs(Number(b.edge||0))-Math.abs(Number(a.edge||0));
+    if(currentQualifiedFilter!=="ALL") return qualifiedPlayFor(b).score-qualifiedPlayFor(a).score || Math.abs(Number(b.edge||0))-Math.abs(Number(a.edge||0));
     return Math.abs(Number(b.edge||0))-Math.abs(Number(a.edge||0));
   });
 
@@ -931,7 +986,7 @@ function render(){
       <div class="matchup">
         <strong>${escapeHtml(g.away)} @ ${escapeHtml(g.home)}</strong>
         <span>${fmtTime(g.kickoff)} • BetMGM ${fmtPrice(g.marketPrice??-110)} • Models: ${escapeHtml(systems)}</span>
-        <div class="market-row">${locked?`<span class="market-chip caution">🔒 PREGAME CARD LOCKED</span>`:""} ${shadowChip(g)} ${marketChip(g)} <span class="consensus-text">Consensus ${consensus}${g.marketConsensus?.bookCount?` (${g.marketConsensus.bookCount} books)`:""}</span>${movementChip(g)}</div>
+        <div class="market-row">${locked?`<span class="market-chip caution">🔒 PREGAME CARD LOCKED</span>`:""} ${qualifiedChip(g)} ${shadowChip(g)} ${marketChip(g)} <span class="consensus-text">Consensus ${consensus}${g.marketConsensus?.bookCount?` (${g.marketConsensus.bookCount} books)`:""}</span>${movementChip(g)}</div>
       </div>
       <div class="metric"><label>Best side</label><strong>${escapeHtml(g.recommendedTeam)}</strong></div>
       <div class="metric"><label>BetMGM</label><strong>${fmtLine(g.marketLine)}</strong></div>
@@ -947,6 +1002,7 @@ function render(){
   $("passCount").textContent=games.filter(g=>g.classification==="PASS").length;
   $("playableCount").textContent=games.filter(g=>g.classification==="PLAYABLE").length;
   $("strongCount").textContent=games.filter(g=>g.classification==="STRONG").length;
+  $("qualifiedCount").textContent=games.filter(g=>qualifiedPlayFor(g).state==="QUALIFIED").length;
   renderBets();
 }
 
@@ -974,7 +1030,13 @@ function openWhy(id){
     <div class="why-stat"><span>Market consensus</span><strong>${m.available?fmtLine(m.consensusLine):"Unavailable"}</strong></div>
     <div class="why-stat"><span>BetMGM vs market</span><strong>${m.available?`${Number(m.betmgmVsConsensus||0)>=0?"+":""}${Number(m.betmgmVsConsensus||0).toFixed(1)} pts`:"—"}</strong></div>
     <div class="why-stat"><span>Rating systems</span><strong>${escapeHtml(systems)}</strong></div>
+    <div class="why-stat"><span>Qualified Play</span><strong>${qualifiedPlayFor(g).state} • ${qualifiedPlayFor(g).score} pts</strong></div>
     <div class="why-stat"><span>Shadow Select</span><strong>${shadow.state}</strong></div>${movementStats}
+  </div>
+  <div class="diagnostic-explain qualified-explain">
+    <strong>🎯 Qualified Play v0.1</strong>
+    <span>${escapeHtml(qualifiedPlayFor(g).reasons.join(" ")||"No qualified-play factors are active for this game.")}</span>
+    <span class="diag-caution">Selection layer only. MODEL v0.5 remains frozen and unchanged.</span>
   </div>
   <div class="diagnostic-explain">
     <strong>🧪 Shadow Select v0.1</strong>
@@ -2543,6 +2605,16 @@ $("tabs").addEventListener("click",e=>{
   render();
 });
 
+$("qualifiedTabs").addEventListener("click",e=>{
+  const btn=e.target.closest(".qualified-tab");
+  if(!btn)return;
+  $("qualifiedTabs").querySelectorAll(".qualified-tab").forEach(x=>x.classList.remove("active"));
+  btn.classList.add("active");
+  currentQualifiedFilter=btn.dataset.qualifiedFilter;
+  if(currentQualifiedFilter!=="ALL") $("sortSelect").value="qualified";
+  render();
+});
+
 $("shadowTabs").addEventListener("click",e=>{
   const btn=e.target.closest(".shadow-tab");
   if(!btn)return;
@@ -2685,7 +2757,7 @@ $("clearBetsBtn").addEventListener("click",async()=>{if(confirm(cloudUser?"Clear
 
 function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=100b1").catch(()=>{}));}
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js?v=100b2").catch(()=>{}));}
 (async()=>{
   renderLiveBets();
   renderBetMgmPerformance();

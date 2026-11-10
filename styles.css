@@ -283,3 +283,17 @@ dialog{width:min(720px,calc(100vw - 28px));border:1px solid #365344;background:#
 .cbb-guardrail{margin:12px 0 16px;color:#d9c98f;font-size:10px;line-height:1.45}.cbb-board{display:grid;gap:13px}.cbb-game-card{display:grid;grid-template-columns:minmax(210px,1.25fr) minmax(260px,1fr) 120px;gap:15px;align-items:center;padding:17px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,rgba(17,29,21,.97),rgba(8,19,13,.97))}.cbb-game-card.value{border-color:#8a7130;box-shadow:inset 0 0 45px rgba(255,211,82,.04)}.cbb-game-card.watch{border-color:#65602f}.cbb-time{font-size:9px;color:var(--muted);text-transform:uppercase}.cbb-matchup h3{margin:4px 0;font-size:15px}.cbb-matchup h3 span{color:var(--muted);font-weight:500}.cbb-side{font-size:12px;font-weight:900;color:#fff0b4}.cbb-side small{color:var(--muted);margin-left:4px}.cbb-market-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.cbb-market-grid>div{padding:9px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.02)}.cbb-market-grid strong{display:block;font-size:15px;margin-top:2px}.cbb-market-grid small{color:var(--muted);font-size:8px}.cbb-signal{padding:8px 9px;border:1px solid var(--line);border-radius:999px;text-align:center;font-size:9px;font-weight:900;letter-spacing:.04em}.cbb-signal.value{border-color:#92752d;color:#ffe27f;background:rgba(255,209,74,.07)}.cbb-signal.watch{border-color:#69642f;color:#ddd47e}.cbb-signal.neutral{color:var(--muted)}.cbb-note{grid-column:1/-1;margin:0;color:var(--muted);font-size:9px}.cbb-game-card .card-actions{grid-column:1/-1;margin-top:-3px}
 @media(max-width:800px){.cbb-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.cbb-game-card{grid-template-columns:1fr}.cbb-market-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.cbb-note,.cbb-game-card .card-actions{grid-column:1}.cbb-heading{flex-direction:column}.cbb-actions{width:100%;justify-content:space-between}}
 @media(max-width:520px){.cbb-lab-section{padding:16px}.cbb-market-grid{grid-template-columns:1fr 1fr 1fr}.view-switch{border-radius:18px;flex-wrap:wrap}.view-btn{min-width:30%}}
+
+/* EdgeHope v1.0.0-beta.2 — Qualified Play v0.1 */
+.summary-grid{grid-template-columns:repeat(5,1fr)}
+.qualified-summary{border-color:#4c7b63!important;box-shadow:inset 0 0 30px rgba(95,240,165,.055)}
+.qualified-summary strong{color:#a8f5c5}
+.qualified-chip{display:inline-flex;align-items:center;padding:5px 8px;border-radius:999px;font-size:10px;font-weight:900;letter-spacing:.04em;border:1px solid;margin:0!important}
+.qualified-chip.qualified{color:#b9ffd0;border-color:#48a06b;background:rgba(78,220,132,.12);box-shadow:0 0 18px rgba(78,220,132,.06)}
+.qualified-chip.watch{color:#f5d16f;border-color:#63552d;background:rgba(246,194,61,.07)}
+.qualified-chip.research{color:#a9c7ba;border-color:#3f5c50;background:rgba(145,190,170,.05)}
+.qualified-chip.pass{color:#71867b;border-color:var(--line);background:rgba(255,255,255,.015)}
+.qualified-legend{border-color:#315c45!important;background:rgba(49,92,69,.07)!important}
+.qualified-explain{border-color:#315c45!important}
+@media(max-width:1050px){.summary-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:620px){.summary-grid{grid-template-columns:repeat(2,1fr)}}
