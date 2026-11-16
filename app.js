@@ -25,17 +25,43 @@ const DEMO_GAMES = [
   }
 ];
 
+function validateBrowserSupabaseKey(value){
+  const key=String(value||"").trim();
+  if(!key) return {ok:true,key:""};
+  const lower=key.toLowerCase();
+  if(lower.startsWith("sb_secret_") || lower.includes("service_role") || lower.includes("supabase_admin")){
+    return {ok:false,key:"",reason:"Secret/admin Supabase keys cannot be stored in a browser. Use a publishable key (or legacy anon key) only."};
+  }
+  const parts=key.split(".");
+  if(parts.length===3){
+    try{
+      let payload=parts[1].replace(/-/g,"+").replace(/_/g,"/");
+      while(payload.length%4) payload+="=";
+      const claims=JSON.parse(atob(payload));
+      const role=String(claims?.role||"").toLowerCase();
+      if(role==="service_role" || role==="supabase_admin"){
+        return {ok:false,key:"",reason:"Secret/admin Supabase keys cannot be stored in a browser. Use a publishable key (or legacy anon key) only."};
+      }
+    }catch{}
+  }
+  return {ok:true,key};
+}
+
 const defaultSettings = { version:SETTINGS_VERSION, mode:"live", endpoint:LIVE_ENDPOINT, liveEndpoint:LIVE_EDGE_ENDPOINT, cbbEndpoint:CBB_ENDPOINT, supabaseUrl:DEFAULT_SUPABASE_URL, supabaseKey:"" };
 
 function loadSettings(){
   try{
     const saved = JSON.parse(localStorage.getItem("se-settings") || "{}");
-    if(saved.version !== SETTINGS_VERSION){
-      const upgraded={...defaultSettings,...saved,version:SETTINGS_VERSION};
-      localStorage.setItem("se-settings", JSON.stringify(upgraded));
-      return upgraded;
+    const merged=saved.version !== SETTINGS_VERSION
+      ? {...defaultSettings,...saved,version:SETTINGS_VERSION}
+      : {...defaultSettings,...saved};
+    const keyCheck=validateBrowserSupabaseKey(merged.supabaseKey);
+    if(!keyCheck.ok) merged.supabaseKey="";
+    else merged.supabaseKey=keyCheck.key;
+    if(saved.version !== SETTINGS_VERSION || !keyCheck.ok){
+      localStorage.setItem("se-settings", JSON.stringify(merged));
     }
-    return {...defaultSettings, ...saved};
+    return merged;
   }catch{ return {...defaultSettings}; }
 }
 
@@ -2276,7 +2302,11 @@ function betSummary(rows){
   const cashRows=graded.filter(b=>Number.isFinite(Number(b.stake))&&Number(b.stake)>0&&Number.isFinite(Number(b.dollarsProfit)));
   const dollarsProfit=cashRows.reduce((s,b)=>s+Number(b.dollarsProfit||0),0);
   const dollarsRisked=cashRows.reduce((s,b)=>s+Number(b.stake||0),0);
-  const clvs=graded.map(b=>Number(b.clv)).filter(Number.isFinite);
+  const clvs=graded
+    .map(b=>b.clv)
+    .filter(v=>v!==null && v!==undefined && String(v).trim()!=="")
+    .map(Number)
+    .filter(Number.isFinite);
   return {graded:graded.length,wins,losses,pushes,pending:rows.length-graded.length,unitsProfit,unitsRisked,roi:unitsRisked?unitsProfit/unitsRisked*100:null,dollarsProfit,dollarsRisked,cashCount:cashRows.length,avgClv:clvs.length?clvs.reduce((a,b)=>a+b,0)/clvs.length:null};
 }
 function splitCard(label,s){
@@ -2577,6 +2607,12 @@ function openSettings(){
 $("saveSettingsBtn").addEventListener("click",async()=>{
   const advancedUrl=$("supabaseUrlInput").value.trim();
   const advancedKey=$("supabaseKeyInput").value.trim();
+  const keyCheck=validateBrowserSupabaseKey(advancedKey||settings.supabaseKey||"");
+  if(!keyCheck.ok){
+    $("cloudSettingsStatus").textContent="⚠️ "+keyCheck.reason;
+    $("supabaseKeyInput").focus();
+    return;
+  }
   settings={
     ...settings,
     version:SETTINGS_VERSION,
@@ -2585,7 +2621,7 @@ $("saveSettingsBtn").addEventListener("click",async()=>{
     liveEndpoint:$("liveEndpointInput").value.trim()||LIVE_EDGE_ENDPOINT,
     cbbEndpoint:$("cbbEndpointInput").value.trim()||CBB_ENDPOINT,
     supabaseUrl:advancedUrl||settings.supabaseUrl||DEFAULT_SUPABASE_URL,
-    supabaseKey:advancedKey||settings.supabaseKey||""
+    supabaseKey:keyCheck.key
   };
   localStorage.setItem("se-settings",JSON.stringify(settings));
   $("settingsDialog").close();
