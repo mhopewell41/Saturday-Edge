@@ -297,3 +297,21 @@ dialog{width:min(720px,calc(100vw - 28px));border:1px solid #365344;background:#
 .qualified-explain{border-color:#315c45!important}
 @media(max-width:1050px){.summary-grid{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:620px){.summary-grid{grid-template-columns:repeat(2,1fr)}}
+
+
+/* EdgeHope v1.1.0-beta.1 • Pick 5 WHY + multi-sport market labs */
+.pick5-why{display:grid;gap:12px;margin:0 0 20px}
+.pick5-why-block{padding:16px 18px;border:1px solid rgba(53,221,126,.28);border-radius:16px;background:rgba(10,34,21,.72)}
+.pick5-why-block.caution{border-color:rgba(244,190,65,.30);background:rgba(35,29,9,.45)}
+.pick5-why-block span{display:block;margin-bottom:7px;color:#83eeb2;font-size:10px;font-weight:900;letter-spacing:.10em;text-transform:uppercase}
+.pick5-why-block.caution span{color:#f3ce6d}
+.pick5-why-block p{margin:0;color:#e3f2e8;font-size:14px;line-height:1.62}
+.pick5-verdict{padding:13px 15px;border:1px solid rgba(100,160,255,.28);border-radius:14px;background:rgba(20,38,60,.38);color:#dceaff;font-size:13px;font-weight:800;line-height:1.5}
+.view-switch{flex-wrap:wrap}
+.view-switch .view-btn{white-space:nowrap}
+@media(max-width:620px){
+  .view-switch{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .view-switch .view-btn{width:100%;padding-left:9px;padding-right:9px;font-size:11px}
+  .pick5-why-block{padding:14px}
+  .pick5-why-block p{font-size:13px}
+}
