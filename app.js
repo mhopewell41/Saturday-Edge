@@ -2811,10 +2811,10 @@ $("betForm").addEventListener("submit",e=>{
   e.preventDefault(); if(!currentBetGame) return;
   const g=currentBetGame,bets=getBets();
   const team=$("betTeam").value, stake=$("betStake").value===""?null:Number($("betStake").value);
-  if(currentBetSport==="CBB"){
+  if(["CBB","NFL","NBA"].includes(currentBetSport)){
     const marketValue=teamNamesMatch(team,g.recommendedTeam)?Number(g.marketValue||0):-Number(g.marketValue||0);
     const line=Number($("betLine").value), price=Number($("betPrice").value), units=Number($("betUnits").value);
-    bets.unshift({id:makeBetId(),sport:"CBB",market:"SPREAD",kind:"PREGAME",result:"PENDING",manualEntry:false,createdAt:new Date().toISOString(),gameId:g.id,cfbdGameId:null,season:new Date(g.kickoff).getFullYear(),week:null,kickoff:g.kickoff,away:g.away,home:g.home,team,line,price,units,stake,edge:marketValue,projectedLine:null,classification:Number(Math.abs(marketValue))>=1?"MARKET_VALUE":"TRACK_ONLY",consensusLine:teamNamesMatch(team,g.recommendedTeam)?g.consensusLine:(g.consensusLine===null||g.consensusLine===undefined?null:-Number(g.consensusLine)),betmgmVsConsensus:marketValue,matchedSystems:["MARKET_CONSENSUS"],notes:$("betNotes").value.trim()});
+    bets.unshift({id:makeBetId(),sport:currentBetSport,market:"SPREAD",kind:"PREGAME",result:"PENDING",manualEntry:false,createdAt:new Date().toISOString(),gameId:g.id,cfbdGameId:null,season:new Date(g.kickoff).getFullYear(),week:null,kickoff:g.kickoff,away:g.away,home:g.home,team,line,price,units,stake,edge:marketValue,projectedLine:null,classification:Number(Math.abs(marketValue))>=1?"MARKET_VALUE":"TRACK_ONLY",consensusLine:teamNamesMatch(team,g.recommendedTeam)?g.consensusLine:(g.consensusLine===null||g.consensusLine===undefined?null:-Number(g.consensusLine)),betmgmVsConsensus:marketValue,matchedSystems:["MARKET_CONSENSUS"],notes:$("betNotes").value.trim()});
   }else if(currentBetKind==="LIVE"){
     const lm=g.liveModel||{};
     const isRec=teamNamesMatch(team,lm.recommendedTeam);
