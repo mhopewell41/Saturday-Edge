@@ -7,7 +7,7 @@
   <title>EdgeHope</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=100b2" />
+  <link rel="stylesheet" href="styles.css?v=110b1" />
 </head>
 <body>
   <div class="app-shell">
@@ -27,7 +27,7 @@
 
     <section class="hero">
       <div>
-        <div class="eyebrow">EDGEHOPE • APP v1.0.0-beta.2 • CFB MODEL v0.5 • QUALIFIED PLAY v0.1 • CBB MARKET LAB v0.1 • BETMGM VALIDATED IMPORT</div>
+        <div class="eyebrow">EDGEHOPE • APP v1.1.0-beta.1 • CFB MODEL v0.5 • QUALIFIED PLAY v0.1 • NFL + CBB + NBA MARKET LABS • BETMGM VALIDATED IMPORT</div>
         <h2>Find the number.<br><span>Keep the receipts.</span></h2>
         <p id="statusText">Loading the live board…</p>
       </div>
@@ -42,6 +42,8 @@
       <button id="pregameViewBtn" class="view-btn active" type="button">🏟️ PREGAME</button>
       <button id="liveViewBtn" class="view-btn live" type="button">⚡ CFB LIVE <span id="liveNavCount">0</span></button>
       <button id="cbbViewBtn" class="view-btn cbb" type="button">🏀 CBB LAB <span id="cbbNavCount">0</span></button>
+      <button id="nflViewBtn" class="view-btn" type="button">🏈 NFL <span id="nflNavCount">0</span></button>
+      <button id="nbaViewBtn" class="view-btn" type="button">🏀 NBA <span id="nbaNavCount">0</span></button>
     </nav>
 
     <div id="pregamePane">
@@ -316,7 +318,67 @@
       </section>
     </section>
 
-    <section id="livePane" class="live-pane hidden">
+        <section id="nflPane" class="cbb-pane hidden">
+      <section class="cbb-lab-section">
+        <div class="section-heading cbb-heading">
+          <div>
+            <div class="eyebrow">NFL • MARKET INTELLIGENCE v0.1</div>
+            <h2>🏈 NFL Market Lab</h2>
+            <p id="nflStatus">Open NFL to compare BetMGM with the broader market.</p>
+          </div>
+          <div class="cbb-actions">
+            <div class="evidence-badge cbb-badge">🧪 Market-first</div>
+            <button id="nflLedgerBtn" class="btn ghost" type="button">💰 NFL Ledger</button>
+            <button id="nflRefreshBtn" class="btn primary" type="button">↻ Refresh NFL</button>
+          </div>
+        </div>
+        <div class="cbb-rule">
+          <strong>What v0.1 does:</strong> compares each BetMGM spread with the median spread from other U.S. books.
+          <span>Exact number first. Key-number value, injuries and matchup context belong in the WHY check before a wager. This board does not claim a predictive NFL model yet.</span>
+        </div>
+        <div class="cbb-summary-grid">
+          <article class="cbb-summary-card"><span>Games with BetMGM</span><strong id="nflCount">0</strong></article>
+          <article class="cbb-summary-card value"><span>1+ point better</span><strong id="nflValueCount">0</strong></article>
+          <article class="cbb-summary-card watch"><span>½-point better</span><strong id="nflWatchCount">0</strong></article>
+          <article class="cbb-summary-card"><span>Odds credits</span><strong id="nflCredits">—</strong></article>
+        </div>
+        <div class="cbb-guardrail">🧯 <strong>Guardrail:</strong> NFL v0.1 is a line-shopping board. It will not call a market-only signal STRONG or pretend a better number guarantees a cover.</div>
+        <div id="nflBoard" class="cbb-board"></div>
+        <div id="nflEmpty" class="empty">No NFL spreads are available right now.</div>
+      </section>
+    </section>
+
+    <section id="nbaPane" class="cbb-pane hidden">
+      <section class="cbb-lab-section">
+        <div class="section-heading cbb-heading">
+          <div>
+            <div class="eyebrow">NBA • MARKET INTELLIGENCE v0.1</div>
+            <h2>🏀 NBA Market Lab</h2>
+            <p id="nbaStatus">Open NBA to compare BetMGM with the broader market.</p>
+          </div>
+          <div class="cbb-actions">
+            <div class="evidence-badge cbb-badge">🧪 Market-first</div>
+            <button id="nbaLedgerBtn" class="btn ghost" type="button">💰 NBA Ledger</button>
+            <button id="nbaRefreshBtn" class="btn primary" type="button">↻ Refresh NBA</button>
+          </div>
+        </div>
+        <div class="cbb-rule">
+          <strong>What v0.1 does:</strong> compares each BetMGM spread with the median spread from other U.S. books.
+          <span>Before a wager, WHY reminds us to check injuries, rest, back-to-backs and rotation news. Those factors are not yet baked into a predictive NBA model.</span>
+        </div>
+        <div class="cbb-summary-grid">
+          <article class="cbb-summary-card"><span>Games with BetMGM</span><strong id="nbaCount">0</strong></article>
+          <article class="cbb-summary-card value"><span>1+ point better</span><strong id="nbaValueCount">0</strong></article>
+          <article class="cbb-summary-card watch"><span>½-point better</span><strong id="nbaWatchCount">0</strong></article>
+          <article class="cbb-summary-card"><span>Odds credits</span><strong id="nbaCredits">—</strong></article>
+        </div>
+        <div class="cbb-guardrail">🧯 <strong>Guardrail:</strong> NBA v0.1 is market intelligence only. Late injury news can move an NBA line fast, so a good number still needs a matchup check.</div>
+        <div id="nbaBoard" class="cbb-board"></div>
+        <div id="nbaEmpty" class="empty">No NBA spreads are available right now.</div>
+      </section>
+    </section>
+
+<section id="livePane" class="live-pane hidden">
       <section class="live-edge-section">
         <div class="section-heading live-heading">
           <div>
@@ -407,6 +469,14 @@
       <label>
         College Basketball Function URL
         <input id="cbbEndpointInput" type="url" placeholder="https://YOUR_PROJECT.supabase.co/functions/v1/edgehope-cbb" />
+      </label>
+      <label>
+        NFL Function URL
+        <input id="nflEndpointInput" type="url" placeholder="https://YOUR_PROJECT.supabase.co/functions/v1/edgehope-nfl" />
+      </label>
+      <label>
+        NBA Function URL
+        <input id="nbaEndpointInput" type="url" placeholder="https://YOUR_PROJECT.supabase.co/functions/v1/edgehope-nba" />
       </label>
       <div class="settings-divider">Cloud account sync</div>
       <div id="cloudSettingsStatus" class="note">Cloud sync uses your saved EdgeHope connection automatically.</div>
@@ -738,6 +808,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=100b3"></script>
+  <script src="app.js?v=110b1"></script>
 </body>
 </html>
