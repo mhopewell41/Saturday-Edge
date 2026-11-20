@@ -3,8 +3,10 @@ const PERFORMANCE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions
 const LIVE_EDGE_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/Saturday-edge-live";
 const BET_CHECK_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/Saturday-edge-bet-check";
 const CBB_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/edgehope-cbb";
+const NFL_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/edgehope-nfl";
+const NBA_ENDPOINT = "https://ahskdtpxsjqasbpbvxja.supabase.co/functions/v1/edgehope-nba";
 const BETMGM_URL = "https://sports.betmgm.com/";
-const SETTINGS_VERSION = 19;
+const SETTINGS_VERSION = 20;
 const LIVE_AUTO_REFRESH_MS = 2 * 60 * 1000;
 const DEFAULT_SUPABASE_URL = "https://ahskdtpxsjqasbpbvxja.supabase.co";
 const CLOUD_TABLE = "se_user_bets";
@@ -47,7 +49,7 @@ function validateBrowserSupabaseKey(value){
   return {ok:true,key};
 }
 
-const defaultSettings = { version:SETTINGS_VERSION, mode:"live", endpoint:LIVE_ENDPOINT, liveEndpoint:LIVE_EDGE_ENDPOINT, cbbEndpoint:CBB_ENDPOINT, supabaseUrl:DEFAULT_SUPABASE_URL, supabaseKey:"" };
+const defaultSettings = { version:SETTINGS_VERSION, mode:"live", endpoint:LIVE_ENDPOINT, liveEndpoint:LIVE_EDGE_ENDPOINT, cbbEndpoint:CBB_ENDPOINT, nflEndpoint:NFL_ENDPOINT, nbaEndpoint:NBA_ENDPOINT, supabaseUrl:DEFAULT_SUPABASE_URL, supabaseKey:"" };
 
 function loadSettings(){
   try{
@@ -111,6 +113,12 @@ let liveStatusText = "Live Edge is ready.";
 let cbbGames = [];
 let cbbPayload = null;
 let cbbStatusText = "CBB Market Lab is ready.";
+let nflGames = [];
+let nflPayload = null;
+let nflStatusText = "NFL Market Lab is ready.";
+let nbaGames = [];
+let nbaPayload = null;
+let nbaStatusText = "NBA Market Lab is ready.";
 let currentBetSport = "CFB";
 let cloudClient = null;
 let cloudSession = null;
@@ -469,7 +477,13 @@ function openLiveWhy(id){
   const g=liveGames.find(x=>String(x.gameId)===String(id)); if(!g) return;
   const lm=g.liveModel||{}, b=g.betmgm||{}, p=g.pregame||{};
   $("dialogTitle").textContent=`LIVE: ${g.away} @ ${g.home}`;
-  $("dialogBody").innerHTML=`<div class="why-grid">
+  const pick5=pick5WhyNarrative(g);
+  $("dialogBody").innerHTML=`<div class="pick5-why">
+    <div class="pick5-why-block"><span>WHY I LEAN THIS WAY</span><p>${escapeHtml(pick5.why)}</p></div>
+    <div class="pick5-why-block caution"><span>WHAT KEEPS IT FROM BEING STRONGER</span><p>${escapeHtml(pick5.caution)}</p></div>
+    <div class="pick5-verdict">🎯 ${escapeHtml(pick5.verdict)}</div>
+  </div>
+  <div class="why-grid">
     <div class="why-stat"><span>Score</span><strong>${g.awayScore??"—"}–${g.homeScore??"—"}</strong></div>
     <div class="why-stat"><span>Game state</span><strong>${escapeHtml(liveGameState(g))}</strong></div>
     <div class="why-stat"><span>Possession</span><strong>${escapeHtml(g.possession||"—")}</strong></div>
@@ -565,7 +579,7 @@ function renderCbb(){
       </div>
       <div class="cbb-signal ${cls}">${signal}</div>
       <p class="cbb-note">${escapeHtml(g.note||"Market-only prototype. Use matchup research before placing a wager.")}</p>
-      <div class="card-actions"><button class="small-btn mgm" onclick="openBetMgm()">↗ BetMGM</button><button class="small-btn bet" onclick="openCbbBet('${escapeHtml(g.id)}')">+ Bet Placed</button></div>
+      <div class="card-actions"><button class="small-btn" onclick="openCbbWhy('${escapeHtml(g.id)}')">WHY?</button><button class="small-btn mgm" onclick="openBetMgm()">↗ BetMGM</button><button class="small-btn bet" onclick="openCbbBet('${escapeHtml(g.id)}')">+ Bet Placed</button></div>
     </article>`;
   }).join("");
 }
@@ -597,6 +611,30 @@ async function loadCbbGames(){
   }
 }
 
+function openCbbWhy(id){
+  const g=cbbGames.find(x=>String(x.id)===String(id)); if(!g) return;
+  const copy=proWhyCopy("NBA",g);
+  const value=Number(g.marketValue||0);
+  const why=value>=1
+    ? `I like the number first: BetMGM gives us ${g.recommendedTeam} ${fmtLine(g.betmgmLine)}, which is ${value.toFixed(1)} point(s) better than the broader college-basketball market. That is useful cushion without pretending the market gap predicts the final score.`
+    : value>=0.5
+    ? `This is a modest number edge. BetMGM is at least a half-point better than the median market for ${g.recommendedTeam}, which is enough to keep it on the short list.`
+    : `The number is basically market neutral. I would need the matchup, tempo or roster context to give me another reason before putting this on the card.`;
+  $("dialogTitle").textContent=`${g.away} @ ${g.home}`;
+  $("dialogBody").innerHTML=`<div class="pick5-why">
+    <div class="pick5-why-block"><span>WHY I LEAN THIS WAY</span><p>${escapeHtml(why)}</p></div>
+    <div class="pick5-why-block caution"><span>WHAT KEEPS IT FROM BEING STRONGER</span><p>College basketball v0.1 does not yet price tempo, efficiency, injuries or lineup changes into a predictive rating. The number can be good and the matchup can still be wrong.</p></div>
+    <div class="pick5-verdict">🎯 ${escapeHtml(copy.verdict)}</div>
+  </div>
+  <div class="why-grid">
+    <div class="why-stat"><span>Side</span><strong>${escapeHtml(g.recommendedTeam)} ${fmtLine(g.betmgmLine)}</strong></div>
+    <div class="why-stat"><span>Consensus</span><strong>${fmtLine(g.consensusLine)}</strong></div>
+    <div class="why-stat"><span>Line value</span><strong>${value>=0?"+":""}${value.toFixed(1)} pts</strong></div>
+  </div>`;
+  $("gameDialog").showModal();
+}
+window.openCbbWhy=openCbbWhy;
+
 function openCbbBet(id){
   const g=cbbGames.find(x=>String(x.id)===String(id)); if(!g) return;
   currentBetGame=g; currentBetKind="PREGAME"; currentBetSport="CBB";
@@ -611,6 +649,146 @@ function openCbbBet(id){
 }
 window.openCbbBet=openCbbBet;
 
+function proMarketConfig(sport){
+  const s=String(sport||"").toUpperCase();
+  if(s==="NFL") return {sport:"NFL",icon:"🏈",label:"NFL",endpoint:settings.nflEndpoint||NFL_ENDPOINT,statusId:"nflStatus",boardId:"nflBoard",emptyId:"nflEmpty",countId:"nflCount",valueId:"nflValueCount",watchId:"nflWatchCount",creditsId:"nflCredits",navId:"nflNavCount"};
+  return {sport:"NBA",icon:"🏀",label:"NBA",endpoint:settings.nbaEndpoint||NBA_ENDPOINT,statusId:"nbaStatus",boardId:"nbaBoard",emptyId:"nbaEmpty",countId:"nbaCount",valueId:"nbaValueCount",watchId:"nbaWatchCount",creditsId:"nbaCredits",navId:"nbaNavCount"};
+}
+
+function proMarketState(sport){
+  return String(sport).toUpperCase()==="NFL"
+    ? {games:nflGames,payload:nflPayload,status:nflStatusText}
+    : {games:nbaGames,payload:nbaPayload,status:nbaStatusText};
+}
+
+function setProMarketState(sport,{games,payload,status}){
+  if(String(sport).toUpperCase()==="NFL"){
+    if(games!==undefined) nflGames=games;
+    if(payload!==undefined) nflPayload=payload;
+    if(status!==undefined) nflStatusText=status;
+  }else{
+    if(games!==undefined) nbaGames=games;
+    if(payload!==undefined) nbaPayload=payload;
+    if(status!==undefined) nbaStatusText=status;
+  }
+}
+
+function proWhyCopy(sport,g){
+  const value=Number(g.marketValue||0), line=Number(g.betmgmLine), consensus=Number(g.consensusLine);
+  const side=`${g.recommendedTeam} ${fmtLine(line)}`;
+  const why=value>=1
+    ? `I like the number first: BetMGM gives us ${side}, which is ${value.toFixed(1)} point(s) better than the median market. That is real line value, even though v0.1 is not claiming this team is ${Math.round(value*10)/10} points more likely to cover.`
+    : value>=0.5
+    ? `This is a modest line-value lean. BetMGM gives us ${side}, about ${value.toFixed(1)} point better than consensus ${fmtLine(consensus)}. That is enough to notice, not enough to force.`
+    : `BetMGM is basically sitting with the market on ${side}. There is no meaningful market-only edge here, so this stays off the card unless the matchup case gives us another reason.`;
+
+  let caution;
+  if(String(sport).toUpperCase()==="NFL"){
+    const abs=Math.abs(line);
+    const keyNote=Math.abs(abs-3)<=0.5||Math.abs(abs-7)<=0.5
+      ? "The spread is sitting near a key NFL number, so even a half-point matters more than usual."
+      : "This is not sitting right on 3 or 7, so the market-value edge matters, but it is not getting the extra boost of crossing a classic NFL key number.";
+    caution=`${keyNote} NFL v0.1 does not yet price injuries, quarterback status, rest or matchup advantages into a predictive rating, so those are the first things I would check before calling it a Pick 5 play.`;
+  }else{
+    caution="NBA v0.1 does not yet price injuries, rest, back-to-backs, travel or rotation changes into a predictive rating. In the NBA, late news can erase a good number in a hurry, so this is a market lead, not a finished pick.";
+  }
+  const verdict=value>=1
+    ? "Best value on the board type of number, but still provisional until the matchup/news check agrees."
+    : value>=0.5
+    ? "Watch-list candidate. Good enough to keep on the radar, not good enough to chase."
+    : "Market neutral. I would pass unless another layer gives us a concrete reason.";
+  return {why,caution,verdict};
+}
+
+function openProWhy(sport,id){
+  const state=proMarketState(sport);
+  const g=state.games.find(x=>String(x.id)===String(id)); if(!g) return;
+  const copy=proWhyCopy(sport,g);
+  $("dialogTitle").textContent=`${g.away} @ ${g.home}`;
+  $("dialogBody").innerHTML=`<div class="pick5-why">
+    <div class="pick5-why-block"><span>WHY I LEAN THIS WAY</span><p>${escapeHtml(copy.why)}</p></div>
+    <div class="pick5-why-block caution"><span>WHAT KEEPS IT FROM BEING STRONGER</span><p>${escapeHtml(copy.caution)}</p></div>
+    <div class="pick5-verdict">🎯 ${escapeHtml(copy.verdict)}</div>
+  </div>
+  <div class="why-grid">
+    <div class="why-stat"><span>Side</span><strong>${escapeHtml(g.recommendedTeam)} ${fmtLine(g.betmgmLine)}</strong></div>
+    <div class="why-stat"><span>Consensus</span><strong>${fmtLine(g.consensusLine)}</strong></div>
+    <div class="why-stat"><span>Line value</span><strong>${Number(g.marketValue)>=0?"+":""}${Number(g.marketValue||0).toFixed(1)} pts</strong></div>
+    <div class="why-stat"><span>Market sample</span><strong>${Number(g.consensusBookCount||0)} books</strong></div>
+  </div>
+  <div class="reason-list"><div class="reason info">Market Lab v0.1 compares BetMGM with other U.S. books. It is not yet a predictive ${escapeHtml(String(sport).toUpperCase())} power model.</div></div>`;
+  $("gameDialog").showModal();
+}
+window.openProWhy=openProWhy;
+
+function renderProMarket(sport){
+  const cfg=proMarketConfig(sport), state=proMarketState(sport);
+  const rows=Array.isArray(state.games)?state.games:[];
+  const board=$(cfg.boardId), empty=$(cfg.emptyId); if(!board||!empty) return;
+  $(cfg.countId).textContent=rows.length;
+  $(cfg.navId).textContent=rows.length;
+  $(cfg.valueId).textContent=rows.filter(g=>Number(g.marketValue)>=1).length;
+  $(cfg.watchId).textContent=rows.filter(g=>Number(g.marketValue)>=0.5&&Number(g.marketValue)<1).length;
+  $(cfg.creditsId).textContent=state.payload?.oddsApiUsage?.remaining ?? "—";
+  if(!rows.length){board.innerHTML="";empty.classList.remove("hidden");return;}
+  empty.classList.add("hidden");
+  board.innerHTML=rows.map(g=>{
+    const cls=cbbSignalClass(g), value=Number(g.marketValue||0);
+    const signal=value>=1?"BETMGM VALUE":value>=0.5?"WATCH":"MARKET NEUTRAL";
+    return `<article class="cbb-game-card ${cls}">
+      <div class="cbb-matchup"><div class="cbb-time">${fmtTime(g.kickoff)}</div><h3>${escapeHtml(g.away)} <span>@</span> ${escapeHtml(g.home)}</h3>
+      <div class="cbb-side">${escapeHtml(g.recommendedTeam||"")} ${fmtLine(g.betmgmLine)} <small>${fmtPrice(g.betmgmPrice??-110)}</small></div></div>
+      <div class="cbb-market-grid">
+        <div><span>BetMGM</span><strong>${fmtLine(g.betmgmLine)}</strong></div>
+        <div><span>Consensus</span><strong>${fmtLine(g.consensusLine)}</strong><small>${Number(g.consensusBookCount||0)} books</small></div>
+        <div><span>Line value</span><strong>${value>0?"+":""}${value.toFixed(1)}</strong><small>points</small></div>
+      </div>
+      <div class="cbb-signal ${cls}">${signal}</div>
+      <p class="cbb-note">${escapeHtml(g.note||"Market-only prototype.")}</p>
+      <div class="card-actions"><button class="small-btn" onclick="openProWhy('${cfg.sport}','${escapeHtml(g.id)}')">WHY?</button><button class="small-btn mgm" onclick="openBetMgm()">↗ BetMGM</button><button class="small-btn bet" onclick="openProBet('${cfg.sport}','${escapeHtml(g.id)}')">+ Bet Placed</button></div>
+    </article>`;
+  }).join("");
+}
+
+async function loadProMarket(sport){
+  const cfg=proMarketConfig(sport), status=$(cfg.statusId);
+  if(status) status.textContent=`Loading BetMGM ${cfg.label} spreads…`;
+  try{
+    let payload;
+    if(settings.mode!=="live"){
+      payload={modelVersion:`EdgeHope ${cfg.label} Market Lab v0.1`,oddsApiUsage:{remaining:"demo"},games:[]};
+    }else{
+      const r=await fetch(cfg.endpoint,{headers:{Accept:"application/json"},cache:"no-store"});
+      payload=await r.json().catch(()=>({}));
+      if(!r.ok||payload.error) throw new Error(payload.error||`${cfg.label} request failed (${r.status}).`);
+    }
+    const rows=Array.isArray(payload?.games)?payload.games:[];
+    const statusText=`${payload?.modelVersion||cfg.label+" Market Lab"} • ${rows.length} games • market-only prototype`;
+    setProMarketState(cfg.sport,{games:rows,payload,status:statusText});
+    if(status) status.textContent=statusText;
+    renderProMarket(cfg.sport);
+  }catch(err){
+    setProMarketState(cfg.sport,{games:[],payload:null,status:`⚠ ${cfg.label} Lab unavailable: ${err.message||err}`});
+    if(status) status.textContent=proMarketState(cfg.sport).status;
+    renderProMarket(cfg.sport);
+  }
+}
+
+function openProBet(sport,id){
+  const cfg=proMarketConfig(sport), state=proMarketState(sport);
+  const g=state.games.find(x=>String(x.id)===String(id)); if(!g) return;
+  currentBetGame=g; currentBetKind="PREGAME"; currentBetSport=cfg.sport;
+  $("betDialogTitle").textContent=`${cfg.sport} • ${g.away} @ ${g.home}`;
+  $("betTeam").innerHTML=[g.away,g.home].map(team=>`<option value="${escapeHtml(team)}" ${team===g.recommendedTeam?"selected":""}>${escapeHtml(team)}</option>`).join("");
+  $("betLine").value=Number(g.betmgmLine??0);
+  $("betPrice").value=Number(g.betmgmPrice??-110);
+  $("betUnits").value="1"; $("betStake").value=""; $("betNotes").value="";
+  $("betContext").classList.remove("hidden");
+  $("betContext").innerHTML=`${cfg.icon} <strong>${cfg.label} Market Lab v0.1</strong> • BetMGM ${fmtLine(g.betmgmLine)} • consensus ${fmtLine(g.consensusLine)} • market value ${Number(g.marketValue||0)>=0?"+":""}${Number(g.marketValue||0).toFixed(1)} pts`;
+  $("betDialog").showModal();
+}
+window.openProBet=openProBet;
+
 async function switchView(view){
   if(view===activeView) return;
   if(activeView==="pregame") pregameStatusText=$("statusText").textContent;
@@ -618,9 +796,13 @@ async function switchView(view){
   $("pregamePane").classList.toggle("hidden",view!=="pregame");
   $("livePane").classList.toggle("hidden",view!=="live");
   $("cbbPane").classList.toggle("hidden",view!=="cbb");
+  $("nflPane").classList.toggle("hidden",view!=="nfl");
+  $("nbaPane").classList.toggle("hidden",view!=="nba");
   $("pregameViewBtn").classList.toggle("active",view==="pregame");
   $("liveViewBtn").classList.toggle("active",view==="live");
   $("cbbViewBtn").classList.toggle("active",view==="cbb");
+  $("nflViewBtn").classList.toggle("active",view==="nfl");
+  $("nbaViewBtn").classList.toggle("active",view==="nba");
   if(view==="live"){
     $("refreshBtn").textContent="↻ Refresh Live";
     $("statusText").textContent=liveStatusText;
@@ -631,6 +813,16 @@ async function switchView(view){
     $("refreshBtn").textContent="↻ Refresh CBB";
     if(!cbbPayload) await loadCbbGames();
     $("statusText").textContent=cbbStatusText;
+  }else if(view==="nfl"){
+    stopLiveAutoRefresh();
+    $("refreshBtn").textContent="↻ Refresh NFL";
+    if(!nflPayload) await loadProMarket("NFL");
+    $("statusText").textContent=nflStatusText;
+  }else if(view==="nba"){
+    stopLiveAutoRefresh();
+    $("refreshBtn").textContent="↻ Refresh NBA";
+    if(!nbaPayload) await loadProMarket("NBA");
+    $("statusText").textContent=nbaStatusText;
   }else{
     stopLiveAutoRefresh();
     $("refreshBtn").textContent="↻ Refresh";
@@ -1033,6 +1225,49 @@ function render(){
 }
 
 function badgeText(c){ return ({STRONG:"🔥 STRONG",PLAYABLE:"🟢 PLAYABLE",LEAN:"🟡 LEAN",PASS:"🔴 PASS"})[c]||c; }
+
+function pick5WhyNarrative(g){
+  const m=g.marketConsensus||{};
+  const q=qualifiedPlayFor(g);
+  const line=Number(g.marketLine);
+  const edge=Math.abs(Number(g.edge||0));
+  const vs=m?.available&&Number.isFinite(Number(m.betmgmVsConsensus))?Number(m.betmgmVsConsensus):null;
+  const isDog=Number.isFinite(line)&&line>0;
+  const isFav=Number.isFinite(line)&&line<0;
+  const isHome=String(g.recommendedTeam||"").trim()===String(g.home||"").trim();
+
+  const why=[];
+  why.push(`We’re looking at ${g.recommendedTeam} ${fmtLine(line)}, not simply who wins the game. The model makes the number ${fmtLine(g.projectedLine)}, which creates a ${edge.toFixed(1)}-point gap.`);
+
+  if(vs!==null){
+    if(vs>=1) why.push(`The number is doing us a favor too: BetMGM is ${vs.toFixed(1)} point(s) better than the broader market for this side.`);
+    else if(vs>=0) why.push(`BetMGM is aligned with the broader market, so we are not paying an obvious line penalty to take this side.`);
+    else why.push(`The catch is the number: BetMGM is ${Math.abs(vs).toFixed(1)} point(s) worse than consensus, which keeps this from ranking higher.`);
+  }else{
+    why.push("The market sample is limited, so I would not treat the model gap by itself as enough reason to bet.");
+  }
+
+  if(q.state==="QUALIFIED"){
+    why.push("This fits the current Qualified Play profile: a moderate 4.5–5.9 model edge, underdog cushion, enough rating-system support, and a usable BetMGM number.");
+  }else if(isDog){
+    why.push("Getting points gives us cushion, but it does not check every Qualified Play box yet.");
+  }else if(isFav){
+    why.push("We are laying points here, and favorites have not earned the same trust as the underdog profile in our prospective sample.");
+  }
+
+  const caution=[];
+  if(edge>=8) caution.push("The model disagreement is huge. Our 8+ edge bucket has been a warning sign, not a confidence booster.");
+  else if(edge>=6) caution.push("The edge is larger than our best-performing 4.5–5.9 range, so I would not automatically read 'bigger edge' as 'better pick.'");
+  if(!isHome) caution.push("This is the road side, so it does not get the home-side ranking bump.");
+  if(vs!==null&&vs<0) caution.push("We would be taking a worse number than the current consensus.");
+  if(!caution.length) caution.push("The main caution is sample size. This is still a model-driven lean, not an established cover probability.");
+
+  let verdict="Research only for now.";
+  if(q.state==="QUALIFIED") verdict="This is a reasonable Pick 5-style candidate at the current number, with moderate confidence rather than a must-play.";
+  else if(q.state==="WATCH") verdict="This is a watch-list side. I like pieces of the case, but I would want the number or market setup to improve before forcing it.";
+  else if(q.state==="RESEARCH") verdict="There is enough here to study, but not enough to force onto the card.";
+  return {why:why.join(" "),caution:caution.join(" "),verdict};
+}
 
 function openWhy(id){
   const g=games.find(x=>x.id===id); if(!g) return;
@@ -2597,6 +2832,8 @@ function openSettings(){
   $("endpointInput").value=settings.endpoint||"";
   $("liveEndpointInput").value=settings.liveEndpoint||LIVE_EDGE_ENDPOINT;
   $("cbbEndpointInput").value=settings.cbbEndpoint||CBB_ENDPOINT;
+  $("nflEndpointInput").value=settings.nflEndpoint||NFL_ENDPOINT;
+  $("nbaEndpointInput").value=settings.nbaEndpoint||NBA_ENDPOINT;
   $("supabaseUrlInput").value=settings.supabaseUrl||DEFAULT_SUPABASE_URL;
   $("supabaseKeyInput").value=settings.supabaseKey||"";
   $("cloudSettingsStatus").textContent=settings.supabaseKey
@@ -2620,6 +2857,8 @@ $("saveSettingsBtn").addEventListener("click",async()=>{
     endpoint:$("endpointInput").value.trim(),
     liveEndpoint:$("liveEndpointInput").value.trim()||LIVE_EDGE_ENDPOINT,
     cbbEndpoint:$("cbbEndpointInput").value.trim()||CBB_ENDPOINT,
+    nflEndpoint:$("nflEndpointInput").value.trim()||NFL_ENDPOINT,
+    nbaEndpoint:$("nbaEndpointInput").value.trim()||NBA_ENDPOINT,
     supabaseUrl:advancedUrl||settings.supabaseUrl||DEFAULT_SUPABASE_URL,
     supabaseKey:keyCheck.key
   };
@@ -2631,6 +2870,8 @@ $("saveSettingsBtn").addEventListener("click",async()=>{
   await loadPerformance();
   if(activeView==="live") await loadLiveGames();
   if(activeView==="cbb") await loadCbbGames();
+  if(activeView==="nfl") await loadProMarket("NFL");
+  if(activeView==="nba") await loadProMarket("NBA");
 });
 $("tabs").addEventListener("click",e=>{
   const btn=e.target.closest(".tab");
@@ -2681,6 +2922,10 @@ $("refreshBtn").addEventListener("click",async()=>{
     await loadLiveGames();
   }else if(activeView==="cbb"){
     await loadCbbGames();
+  }else if(activeView==="nfl"){
+    await loadProMarket("NFL");
+  }else if(activeView==="nba"){
+    await loadProMarket("NBA");
   }else{
     await loadGames();
     await loadPerformance();
@@ -2690,7 +2935,25 @@ $("liveRefreshBtn").addEventListener("click",loadLiveGames);
 $("pregameViewBtn").addEventListener("click",()=>switchView("pregame"));
 $("liveViewBtn").addEventListener("click",()=>switchView("live"));
 $("cbbViewBtn").addEventListener("click",()=>switchView("cbb"));
+$("nflViewBtn").addEventListener("click",()=>switchView("nfl"));
+$("nbaViewBtn").addEventListener("click",()=>switchView("nba"));
 $("cbbRefreshBtn").addEventListener("click",loadCbbGames);
+$("nflRefreshBtn").addEventListener("click",()=>loadProMarket("NFL"));
+$("nbaRefreshBtn").addEventListener("click",()=>loadProMarket("NBA"));
+$("nflLedgerBtn").addEventListener("click",async()=>{
+  await switchView("pregame");
+  currentLedgerSportFilter="NFL";
+  $("ledgerSportFilter").querySelectorAll("[data-ledger-sport]").forEach(x=>x.classList.toggle("active",x.dataset.ledgerSport==="NFL"));
+  renderBets();
+  $("betsTableWrap")?.scrollIntoView({behavior:"smooth",block:"start"});
+});
+$("nbaLedgerBtn").addEventListener("click",async()=>{
+  await switchView("pregame");
+  currentLedgerSportFilter="NBA";
+  $("ledgerSportFilter").querySelectorAll("[data-ledger-sport]").forEach(x=>x.classList.toggle("active",x.dataset.ledgerSport==="NBA"));
+  renderBets();
+  $("betsTableWrap")?.scrollIntoView({behavior:"smooth",block:"start"});
+});
 $("cbbLedgerBtn").addEventListener("click",async()=>{
   await switchView("pregame");
   currentLedgerSportFilter="CBB";
