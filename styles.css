@@ -315,3 +315,14 @@ dialog{width:min(720px,calc(100vw - 28px));border:1px solid #365344;background:#
   .pick5-why-block{padding:14px}
   .pick5-why-block p{font-size:13px}
 }
+
+
+/* EdgeHope v1.1.0-beta.2 • traceable WHY */
+.evidence-trail{margin:18px 0;border:1px solid rgba(111,170,130,.28);border-radius:16px;background:rgba(5,18,12,.62);overflow:hidden}
+.evidence-trail>summary{cursor:pointer;padding:13px 15px;font-weight:900;color:#c9f8d9}
+.evidence-trail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:0 12px 12px}
+.evidence-trail-grid>div{padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:rgba(2,12,7,.48)}
+.evidence-trail-grid span{display:block;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.08em}
+.evidence-trail-grid strong{display:block;margin-top:4px;color:var(--text);font-size:11px;line-height:1.45}
+.evidence-trail>p{margin:0;padding:0 14px 14px;color:#f0cf78;font-size:10px;line-height:1.5}
+@media(max-width:620px){.evidence-trail-grid{grid-template-columns:1fr}}
