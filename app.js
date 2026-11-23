@@ -613,24 +613,21 @@ async function loadCbbGames(){
 
 function openCbbWhy(id){
   const g=cbbGames.find(x=>String(x.id)===String(id)); if(!g) return;
-  const copy=proWhyCopy("NBA",g);
-  const value=Number(g.marketValue||0);
-  const why=value>=1
-    ? `I like the number first: BetMGM gives us ${g.recommendedTeam} ${fmtLine(g.betmgmLine)}, which is ${value.toFixed(1)} point(s) better than the broader college-basketball market. That is useful cushion without pretending the market gap predicts the final score.`
-    : value>=0.5
-    ? `This is a modest number edge. BetMGM is at least a half-point better than the median market for ${g.recommendedTeam}, which is enough to keep it on the short list.`
-    : `The number is basically market neutral. I would need the matchup, tempo or roster context to give me another reason before putting this on the card.`;
+  const copy=proWhyCopy("CBB",g);
+  const value=Number((g.lineAdvantage ?? g.marketValue) || 0);
   $("dialogTitle").textContent=`${g.away} @ ${g.home}`;
   $("dialogBody").innerHTML=`<div class="pick5-why">
-    <div class="pick5-why-block"><span>WHY I LEAN THIS WAY</span><p>${escapeHtml(why)}</p></div>
-    <div class="pick5-why-block caution"><span>WHAT KEEPS IT FROM BEING STRONGER</span><p>College basketball v0.1 does not yet price tempo, efficiency, injuries or lineup changes into a predictive rating. The number can be good and the matchup can still be wrong.</p></div>
+    <div class="pick5-why-block"><span>WHY I LEAN THIS WAY</span><p>${escapeHtml(copy.why)}</p></div>
+    <div class="pick5-why-block caution"><span>WHAT KEEPS IT FROM BEING STRONGER</span><p>${escapeHtml(copy.caution)}</p></div>
     <div class="pick5-verdict">🎯 ${escapeHtml(copy.verdict)}</div>
   </div>
   <div class="why-grid">
     <div class="why-stat"><span>Side</span><strong>${escapeHtml(g.recommendedTeam)} ${fmtLine(g.betmgmLine)} (${fmtPrice(g.betmgmPrice??-110)})</strong></div>
     <div class="why-stat"><span>Consensus</span><strong>${fmtLine(g.consensusLine)}</strong></div>
-    <div class="why-stat"><span>Line value</span><strong>${value>=0?"+":""}${value.toFixed(1)} pts</strong></div>
-  </div>`;
+    <div class="why-stat"><span>Spread difference</span><strong>${value>=0?"+":""}${value.toFixed(1)} pts</strong></div>
+    <div class="why-stat"><span>Market sample</span><strong>${Number(g.consensusBookCount||0)} books</strong></div>
+  </div>
+  ${evidenceTrailHtml(proEvidenceTrail("CBB",g))}`;
   $("gameDialog").showModal();
 }
 window.openCbbWhy=openCbbWhy;
@@ -644,7 +641,7 @@ function openCbbBet(id){
   $("betPrice").value=Number(g.betmgmPrice??-110);
   $("betUnits").value="1"; $("betStake").value=""; $("betNotes").value="";
   $("betContext").classList.remove("hidden");
-  $("betContext").innerHTML=`🏀 <strong>CBB Market Lab v0.1</strong> • BetMGM ${fmtLine(g.betmgmLine)} • consensus ${fmtLine(g.consensusLine)} • market value ${Number(g.marketValue||0)>=0?"+":""}${Number(g.marketValue||0).toFixed(1)} pts`;
+  $("betContext").innerHTML=`🏀 <strong>CBB Market Lab v0.1</strong> • BetMGM ${fmtLine(g.betmgmLine)} (${fmtPrice(g.betmgmPrice??-110)}) • consensus ${fmtLine(g.consensusLine)} • spread difference ${Number(g.marketValue||0)>=0?"+":""}${Number(g.marketValue||0).toFixed(1)} pts`;
   $("betDialog").showModal();
 }
 window.openCbbBet=openCbbBet;
@@ -674,7 +671,9 @@ function setProMarketState(sport,{games,payload,status}){
 }
 
 function proEvidenceTrail(sport,g){
-  const state=proMarketState(sport), pc=g?.priceContext||{};
+  const code=String(sport||"").toUpperCase();
+  const state=code==="CBB" ? {games:cbbGames,payload:cbbPayload,status:cbbStatusText} : proMarketState(code);
+  const pc=g?.priceContext||{};
   const spreadDiff=Number((g?.lineAdvantage ?? g?.marketValue) || 0);
   const items=[
     {label:"Feed",value:`${String(sport).toUpperCase()} Market Lab v0.1`},
