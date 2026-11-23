@@ -564,7 +564,7 @@ function renderCbb(){
   empty.classList.add("hidden");
   board.innerHTML=rows.map(g=>{
     const cls=cbbSignalClass(g), value=Number(g.marketValue||0);
-    const signal=value>=1?"BETMGM VALUE":value>=0.5?"WATCH":"MARKET NEUTRAL";
+    const signal=value>=1?"SPREAD ADVANTAGE":value>=0.5?"WATCH":"MARKET NEUTRAL";
     const books=Number(g.consensusBookCount||0);
     return `<article class="cbb-game-card ${cls}">
       <div class="cbb-matchup">
@@ -627,7 +627,7 @@ function openCbbWhy(id){
     <div class="pick5-verdict">🎯 ${escapeHtml(copy.verdict)}</div>
   </div>
   <div class="why-grid">
-    <div class="why-stat"><span>Side</span><strong>${escapeHtml(g.recommendedTeam)} ${fmtLine(g.betmgmLine)}</strong></div>
+    <div class="why-stat"><span>Side</span><strong>${escapeHtml(g.recommendedTeam)} ${fmtLine(g.betmgmLine)} (${fmtPrice(g.betmgmPrice??-110)})</strong></div>
     <div class="why-stat"><span>Consensus</span><strong>${fmtLine(g.consensusLine)}</strong></div>
     <div class="why-stat"><span>Line value</span><strong>${value>=0?"+":""}${value.toFixed(1)} pts</strong></div>
   </div>`;
@@ -673,30 +673,68 @@ function setProMarketState(sport,{games,payload,status}){
   }
 }
 
-function proWhyCopy(sport,g){
-  const value=Number(g.marketValue||0), line=Number(g.betmgmLine), consensus=Number(g.consensusLine);
-  const side=`${g.recommendedTeam} ${fmtLine(line)}`;
-  const why=value>=1
-    ? `I like the number first: BetMGM gives us ${side}, which is ${value.toFixed(1)} point(s) better than the median market. That is real line value, even though v0.1 is not claiming this team is ${Math.round(value*10)/10} points more likely to cover.`
-    : value>=0.5
-    ? `This is a modest line-value lean. BetMGM gives us ${side}, about ${value.toFixed(1)} point better than consensus ${fmtLine(consensus)}. That is enough to notice, not enough to force.`
-    : `BetMGM is basically sitting with the market on ${side}. There is no meaningful market-only edge here, so this stays off the card unless the matchup case gives us another reason.`;
+function proEvidenceTrail(sport,g){
+  const state=proMarketState(sport), pc=g?.priceContext||{};
+  const spreadDiff=Number((g?.lineAdvantage ?? g?.marketValue) || 0);
+  const items=[
+    {label:"Feed",value:`${String(sport).toUpperCase()} Market Lab v0.1`},
+    {label:"Board generated",value:fmtStamp(state?.payload?.generatedAt)},
+    {label:"BetMGM updated",value:fmtStamp(g?.betmgmLastUpdate)},
+    {label:"BetMGM price",value:`${fmtLine(g?.betmgmLine)} (${fmtPrice(g?.betmgmPrice??-110)})`},
+    {label:"Consensus spread",value:`${fmtLine(g?.consensusLine)} across ${Number(g?.consensusBookCount||0)} books`},
+    {label:"Spread difference",value:`${spreadDiff>=0?"+":""}${spreadDiff.toFixed(1)} point(s) vs median`}
+  ];
+  if(pc?.comparable){
+    const premium=Number(pc.pricePremiumPct||0);
+    items.push({label:"Same-line price check",value:premium>0
+      ? `BetMGM is ${premium.toFixed(2)} implied-probability point(s) more expensive than the median of ${Number(pc.sameLineBookCount||0)} same-line books.`
+      : premium<0
+      ? `BetMGM is ${Math.abs(premium).toFixed(2)} implied-probability point(s) cheaper than the median of ${Number(pc.sameLineBookCount||0)} same-line books.`
+      : `BetMGM is priced about the same as the median of ${Number(pc.sameLineBookCount||0)} same-line books.`});
+  }else{
+    items.push({label:"Same-line price check",value:"No clean same-spread comparison sample. EdgeHope does not infer price value from books offering a different spread."});
+  }
+  return items;
+}
 
-  let caution;
+function proWhyCopy(sport,g){
+  const spreadDiff=Number((g.lineAdvantage ?? g.marketValue) || 0);
+  const line=Number(g.betmgmLine), price=Number(g.betmgmPrice??-110), consensus=Number(g.consensusLine);
+  const side=`${g.recommendedTeam} ${fmtLine(line)} (${fmtPrice(price)})`;
+  const pc=g?.priceContext||{};
+
+  const why=spreadDiff>=1
+    ? `At this exact price, BetMGM gives us ${side}. The spread is ${spreadDiff.toFixed(1)} point(s) better than the median market ${fmtLine(consensus)} across ${Number(g.consensusBookCount||0)} books. That is a spread advantage, not automatically a betting-value claim.`
+    : spreadDiff>=0.5
+    ? `At this exact price, BetMGM gives us ${side}, a ${spreadDiff.toFixed(1)}-point spread advantage versus the median ${fmtLine(consensus)}. That is enough to flag for review, not enough by itself to force a bet.`
+    : `At ${side}, BetMGM is essentially aligned with the median spread ${fmtLine(consensus)}. The market feed alone is not giving us a reason to bet.`;
+
+  let priceNote="There is no clean same-spread peer sample, so EdgeHope will not pretend the juice comparison is apples-to-apples.";
+  if(pc?.comparable){
+    const premium=Number(pc.pricePremiumPct||0);
+    priceNote=premium>=1
+      ? `At the same spread, BetMGM is about ${premium.toFixed(2)} implied-probability point(s) more expensive than the peer median. That price offsets some of the spread appeal.`
+      : premium<=-1
+      ? `At the same spread, BetMGM is about ${Math.abs(premium).toFixed(2)} implied-probability point(s) cheaper than the peer median, which strengthens the price case.`
+      : "At the same spread, BetMGM pricing is broadly in line with the peer median.";
+  }
+
+  let ruleNote;
   if(String(sport).toUpperCase()==="NFL"){
     const abs=Math.abs(line);
-    const keyNote=Math.abs(abs-3)<=0.5||Math.abs(abs-7)<=0.5
-      ? "The spread is sitting near a key NFL number, so even a half-point matters more than usual."
-      : "This is not sitting right on 3 or 7, so the market-value edge matters, but it is not getting the extra boost of crossing a classic NFL key number.";
-    caution=`${keyNote} NFL v0.1 does not yet price injuries, quarterback status, rest or matchup advantages into a predictive rating, so those are the first things I would check before calling it a Pick 5 play.`;
+    ruleNote=(Math.abs(abs-3)<=0.5||Math.abs(abs-7)<=0.5)
+      ? "EdgeHope rule note: the spread is near 3 or 7, so a half-point deserves extra attention. This is an interpretation rule, not a live-data claim."
+      : "EdgeHope rule note: the spread is not sitting directly on 3 or 7. This is interpretation, not a feed-derived fact.";
   }else{
-    caution="NBA v0.1 does not yet price injuries, rest, back-to-backs, travel or rotation changes into a predictive rating. In the NBA, late news can erase a good number in a hurry, so this is a market lead, not a finished pick.";
+    ruleNote="EdgeHope rule note: injuries, rest, travel and rotation context are not part of this market-only feed. No claim about those factors is being made here.";
   }
-  const verdict=value>=1
-    ? "Best value on the board type of number, but still provisional until the matchup/news check agrees."
-    : value>=0.5
-    ? "Watch-list candidate. Good enough to keep on the radar, not good enough to chase."
-    : "Market neutral. I would pass unless another layer gives us a concrete reason.";
+
+  const caution=`${priceNote} ${ruleNote}`;
+  const verdict=spreadDiff>=1
+    ? `Spread advantage at ${fmtLine(line)} (${fmtPrice(price)}), but provisional until the price and matchup context still make sense.`
+    : spreadDiff>=0.5
+    ? `Watch at ${fmtLine(line)} (${fmtPrice(price)}). Recheck if the line or juice moves.`
+    : "Market neutral at the current spread and price.";
   return {why,caution,verdict};
 }
 
@@ -716,6 +754,7 @@ function openProWhy(sport,id){
     <div class="why-stat"><span>Line value</span><strong>${Number(g.marketValue)>=0?"+":""}${Number(g.marketValue||0).toFixed(1)} pts</strong></div>
     <div class="why-stat"><span>Market sample</span><strong>${Number(g.consensusBookCount||0)} books</strong></div>
   </div>
+  ${evidenceTrailHtml(proEvidenceTrail(sport,g))}
   <div class="reason-list"><div class="reason info">Market Lab v0.1 compares BetMGM with other U.S. books. It is not yet a predictive ${escapeHtml(String(sport).toUpperCase())} power model.</div></div>`;
   $("gameDialog").showModal();
 }
@@ -734,7 +773,7 @@ function renderProMarket(sport){
   empty.classList.add("hidden");
   board.innerHTML=rows.map(g=>{
     const cls=cbbSignalClass(g), value=Number(g.marketValue||0);
-    const signal=value>=1?"BETMGM VALUE":value>=0.5?"WATCH":"MARKET NEUTRAL";
+    const signal=value>=1?"SPREAD ADVANTAGE":value>=0.5?"WATCH":"MARKET NEUTRAL";
     return `<article class="cbb-game-card ${cls}">
       <div class="cbb-matchup"><div class="cbb-time">${fmtTime(g.kickoff)}</div><h3>${escapeHtml(g.away)} <span>@</span> ${escapeHtml(g.home)}</h3>
       <div class="cbb-side">${escapeHtml(g.recommendedTeam||"")} ${fmtLine(g.betmgmLine)} <small>${fmtPrice(g.betmgmPrice??-110)}</small></div></div>
