@@ -1226,46 +1226,101 @@ function render(){
 
 function badgeText(c){ return ({STRONG:"🔥 STRONG",PLAYABLE:"🟢 PLAYABLE",LEAN:"🟡 LEAN",PASS:"🔴 PASS"})[c]||c; }
 
-function pick5WhyNarrative(g){
-  const m=g.marketConsensus||{};
-  const q=qualifiedPlayFor(g);
-  const line=Number(g.marketLine);
-  const edge=Math.abs(Number(g.edge||0));
-  const vs=m?.available&&Number.isFinite(Number(m.betmgmVsConsensus))?Number(m.betmgmVsConsensus):null;
-  const isDog=Number.isFinite(line)&&line>0;
-  const isFav=Number.isFinite(line)&&line<0;
-  const isHome=String(g.recommendedTeam||"").trim()===String(g.home||"").trim();
-
-  const why=[];
-  why.push(`We’re looking at ${g.recommendedTeam} ${fmtLine(line)}, not simply who wins the game. The model makes the number ${fmtLine(g.projectedLine)}, which creates a ${edge.toFixed(1)}-point gap.`);
-
-  if(vs!==null){
-    if(vs>=1) why.push(`The number is doing us a favor too: BetMGM is ${vs.toFixed(1)} point(s) better than the broader market for this side.`);
-    else if(vs>=0) why.push(`BetMGM is aligned with the broader market, so we are not paying an obvious line penalty to take this side.`);
-    else why.push(`The catch is the number: BetMGM is ${Math.abs(vs).toFixed(1)} point(s) worse than consensus, which keeps this from ranking higher.`);
+function fmtStamp(value){
+  if(!value) return "—";
+  const d=new Date(value);
+  return Number.isNaN(d.getTime())?"—":d.toLocaleString();
+}
+function americanImpliedPct(price){
+  const p=Number(price);
+  if(!Number.isFinite(p)||p===0) return null;
+  return (p<0?(-p)/((-p)+100):100/(p+100))*100;
+}
+function medianNumber(values){
+  const rows=(values||[]).map(Number).filter(Number.isFinite).sort((a,b)=>a-b);
+  if(!rows.length) return null;
+  const mid=Math.floor(rows.length/2);
+  return rows.length%2?rows[mid]:(rows[mid-1]+rows[mid])/2;
+}
+function cfbSameLinePriceContext(g){
+  const line=Number(g?.marketLine), price=Number(g?.marketPrice);
+  const books=Array.isArray(g?.marketConsensus?.books)?g.marketConsensus.books:[];
+  const peers=books.filter(b=>Number.isFinite(Number(b?.line))&&Number.isFinite(Number(b?.price))&&Math.abs(Number(b.line)-line)<0.01);
+  const mgm=americanImpliedPct(price), peer=medianNumber(peers.map(b=>americanImpliedPct(b.price)));
+  return mgm===null||peer===null
+    ? {comparable:false,count:peers.length,mgm,peer,premium:null}
+    : {comparable:true,count:peers.length,mgm,peer,premium:mgm-peer};
+}
+function qualifiedPriceWindow(g){
+  const projected=Number(g?.projectedLine);
+  return Number.isFinite(projected)
+    ? {min:Number((projected+4.5).toFixed(1)),maxExclusive:Number((projected+6.0).toFixed(1))}
+    : null;
+}
+function cfbEvidenceTrail(g){
+  const pc=cfbSameLinePriceContext(g), window=qualifiedPriceWindow(g);
+  const systems=Array.isArray(g?.matchedSystems)?g.matchedSystems:[];
+  const items=[
+    {label:"Model",value:lastPayload?.modelVersion||"Saturday Edge v0.5"},
+    {label:"Board pipeline",value:lastPayload?.pipelineVersion||"Saturday Edge Board"},
+    {label:"Board generated",value:fmtStamp(lastPayload?.generatedAt)},
+    {label:"BetMGM updated",value:fmtStamp(g?.betmgmLastUpdate)},
+    {label:"BetMGM price",value:`${fmtLine(g?.marketLine)} (${fmtPrice(g?.marketPrice??-110)})`},
+    {label:"Consensus",value:g?.marketConsensus?.available?`${fmtLine(g.marketConsensus.consensusLine)} across ${Number(g.marketConsensus.bookCount||0)} books`:"Unavailable"},
+    {label:"Rating inputs",value:systems.length?systems.join(", "):"None"}
+  ];
+  if(pc.comparable){
+    const v=pc.premium;
+    items.push({label:"Same-line price check",value:v>0
+      ? `BetMGM is ${v.toFixed(1)} implied-probability point(s) more expensive than the median of ${pc.count} same-line books.`
+      : v<0
+      ? `BetMGM is ${Math.abs(v).toFixed(1)} implied-probability point(s) cheaper than the median of ${pc.count} same-line books.`
+      : `BetMGM pricing is essentially identical to the median of ${pc.count} same-line books.`});
   }else{
-    why.push("The market sample is limited, so I would not treat the model gap by itself as enough reason to bet.");
+    items.push({label:"Same-line price check",value:"No clean same-spread comparison sample. Spread advantage and juice are kept separate."});
   }
+  if(window) items.push({label:"Locked Qualified window",value:`${fmtLine(window.min)} through anything below ${fmtLine(window.maxExclusive)} for this model line (4.5–5.9 edge band).`});
+  return items;
+}
+function evidenceTrailHtml(items){
+  return `<details class="evidence-trail" open><summary>🧾 Evidence trail</summary><div class="evidence-trail-grid">${(items||[]).map(x=>`<div><span>${escapeHtml(x.label)}</span><strong>${escapeHtml(x.value)}</strong></div>`).join("")}</div><p>These claims are tied to the displayed line and price. If either changes, reopen WHY before using the explanation.</p></details>`;
+}
 
-  if(q.state==="QUALIFIED"){
-    why.push("This fits the current Qualified Play profile: a moderate 4.5–5.9 model edge, underdog cushion, enough rating-system support, and a usable BetMGM number.");
-  }else if(isDog){
-    why.push("Getting points gives us cushion, but it does not check every Qualified Play box yet.");
-  }else if(isFav){
-    why.push("We are laying points here, and favorites have not earned the same trust as the underdog profile in our prospective sample.");
+function pick5WhyNarrative(g){
+  const m=g.marketConsensus||{}, q=qualifiedPlayFor(g);
+  const line=Number(g.marketLine), price=Number(g.marketPrice??-110), edge=Math.abs(Number(g.edge||0));
+  const vs=m?.available&&Number.isFinite(Number(m.betmgmVsConsensus))?Number(m.betmgmVsConsensus):null;
+  const isDog=Number.isFinite(line)&&line>0, isFav=Number.isFinite(line)&&line<0;
+  const isHome=String(g.recommendedTeam||"").trim()===String(g.home||"").trim();
+  const pc=cfbSameLinePriceContext(g), window=qualifiedPriceWindow(g);
+  const why=[`At the current BetMGM price, we’re evaluating ${g.recommendedTeam} ${fmtLine(line)} (${fmtPrice(price)}). MODEL v0.5 makes the number ${fmtLine(g.projectedLine)}, producing a ${edge.toFixed(1)}-point model/market gap.`];
+  if(vs!==null){
+    if(vs>0) why.push(`The spread itself is ${vs.toFixed(1)} point(s) better than the non-BetMGM median ${fmtLine(m.consensusLine)} across ${Number(m.bookCount||0)} books.`);
+    else if(vs===0) why.push(`The BetMGM spread matches the non-BetMGM median ${fmtLine(m.consensusLine)} across ${Number(m.bookCount||0)} books.`);
+    else why.push(`The spread is ${Math.abs(vs).toFixed(1)} point(s) worse than the non-BetMGM median ${fmtLine(m.consensusLine)}, which lowers confidence.`);
+  }else why.push("There is no clean multi-book consensus, so the market comparison cannot support the pick.");
+  if(pc.comparable){
+    if(pc.premium>=1) why.push(`Price warning: at this exact spread, BetMGM is about ${pc.premium.toFixed(1)} implied-probability point(s) more expensive than the same-line peer median.`);
+    else if(pc.premium<=-1) why.push(`Price bonus: at this exact spread, BetMGM is about ${Math.abs(pc.premium).toFixed(1)} implied-probability point(s) cheaper than the same-line peer median.`);
+    else why.push("The juice is broadly in line with books offering the same spread.");
   }
+  if(q.state==="QUALIFIED") why.push("It currently satisfies the locked Qualified Play rule: underdog, 4.5–5.9 model edge, 2+ rating systems, and BetMGM spread aligned with or better than consensus.");
+  else if(isDog) why.push("We are getting points, but the game does not currently satisfy every locked Qualified Play condition.");
+  else if(isFav) why.push("We are laying points, and favorites are not part of the current Qualified Play rule.");
 
   const caution=[];
-  if(edge>=8) caution.push("The model disagreement is huge. Our 8+ edge bucket has been a warning sign, not a confidence booster.");
-  else if(edge>=6) caution.push("The edge is larger than our best-performing 4.5–5.9 range, so I would not automatically read 'bigger edge' as 'better pick.'");
-  if(!isHome) caution.push("This is the road side, so it does not get the home-side ranking bump.");
-  if(vs!==null&&vs<0) caution.push("We would be taking a worse number than the current consensus.");
-  if(!caution.length) caution.push("The main caution is sample size. This is still a model-driven lean, not an established cover probability.");
+  if(window) caution.push(`This explanation is price-sensitive. The locked 4.5–5.9 edge band corresponds to a BetMGM spread from ${fmtLine(window.min)} up to, but not including, ${fmtLine(window.maxExclusive)} for this model projection.`);
+  if(edge>=8) caution.push("An 8+ model gap remains a caution bucket, not extra confidence.");
+  else if(edge>=6) caution.push("This sits above the locked 4.5–5.9 validation band, so a bigger disagreement is not automatically better.");
+  if(!isHome) caution.push("This is the road side, so it does not receive the home-side ranking bump.");
+  if(vs!==null&&vs<0) caution.push("The current BetMGM spread is worse than consensus.");
+  if(!pc.comparable) caution.push("There is no same-spread peer sample for a clean juice comparison, so EdgeHope does not infer price value from a different line.");
+  if(!caution.length) caution.push("The remaining caution is sample size. This is decision support, not a cover probability.");
 
-  let verdict="Research only for now.";
-  if(q.state==="QUALIFIED") verdict="This is a reasonable Pick 5-style candidate at the current number, with moderate confidence rather than a must-play.";
-  else if(q.state==="WATCH") verdict="This is a watch-list side. I like pieces of the case, but I would want the number or market setup to improve before forcing it.";
-  else if(q.state==="RESEARCH") verdict="There is enough here to study, but not enough to force onto the card.";
+  let verdict="Research only at this number.";
+  if(q.state==="QUALIFIED") verdict=`Qualified at ${fmtLine(line)} (${fmtPrice(price)}). Recheck WHY if the spread or odds change.`;
+  else if(q.state==="WATCH") verdict=`Watch at ${fmtLine(line)} (${fmtPrice(price)}). Do not carry this verdict forward to a different price.`;
+  else if(q.state==="RESEARCH") verdict="There is evidence worth studying, but not enough to force onto the card.";
   return {why:why.join(" "),caution:caution.join(" "),verdict};
 }
 
@@ -1285,7 +1340,7 @@ function openWhy(id){
     <div class="why-stat"><span>Evidence snapshots</span><strong>${move.snapshots}</strong></div>`:"";
   $("dialogTitle").textContent=`${g.away} @ ${g.home}`;
   $("dialogBody").innerHTML=`<div class="why-grid">
-    <div class="why-stat"><span>Recommended side</span><strong>${escapeHtml(g.recommendedTeam)} ${fmtLine(g.marketLine)}</strong></div>
+    <div class="why-stat"><span>Recommended side</span><strong>${escapeHtml(g.recommendedTeam)} ${fmtLine(g.marketLine)} (${fmtPrice(g.marketPrice??-110)})</strong></div>
     <div class="why-stat"><span>Our projected line</span><strong>${fmtLine(g.projectedLine)}</strong></div>
     <div class="why-stat"><span>Model edge</span><strong class="edge-positive">+${Math.abs(Number(g.edge||0)).toFixed(1)} pts</strong></div>
     <div class="why-stat"><span>Market consensus</span><strong>${m.available?fmtLine(m.consensusLine):"Unavailable"}</strong></div>
@@ -1304,6 +1359,7 @@ function openWhy(id){
     <span>${escapeHtml((shadow.reasons||[]).join(" ")||"This game does not currently trigger a locked shadow rule.")}</span>
     <span class="diag-caution">Prospective only. MODEL v0.5 classification is unchanged.</span>
   </div>
+  ${evidenceTrailHtml(cfbEvidenceTrail(g))}
   <div class="reason-list">${(g.factors||[]).map(f=>`<div class="reason ${f.type||"info"}">${escapeHtml(f.text)}</div>`).join("")}</div>`;
   $("gameDialog").showModal();
 }
